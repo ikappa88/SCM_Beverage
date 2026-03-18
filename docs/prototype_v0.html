@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>飲料メーカー 物流シミュレーター</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #111827;
+    --bg3: #1a2235;
+    --panel: #151d2e;
+    --border: #1e2d45;
+    --border2: #243548;
+    --accent: #00c9a7;
+    --accent2: #3b82f6;
+    --accent3: #f59e0b;
+    --accent4: #ef4444;
+    --accent5: #8b5cf6;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #4a5568;
+    --green: #10b981;
+    --red: #ef4444;
+    --orange: #f59e0b;
+    --yellow: #facc15;
+    --font: 'Noto Sans JP', sans-serif;
+    --mono: 'Share Tech Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* HEADER */
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .logo-text { font-size: 15px; font-weight: 700; letter-spacing: 0.5px; }
+  .logo-sub { font-size: 11px; color: var(--text2); font-weight: 300; }
+  .header-controls {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .btn {
+    padding: 7px 16px; border: none; border-radius: 6px;
+    font-family: var(--font); font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn-primary { background: var(--accent); color: #0a0e1a; }
+  .btn-primary:hover { background: #00e6be; }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .sim-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text2);
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .status-dot.paused { background: var(--orange); animation: none; }
+  .status-dot.running { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* MAIN LAYOUT */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: auto 1fr;
+    height: calc(100vh - 57px);
+    gap: 0;
+  }
+
+  /* KPI BAR */
+  .kpi-bar {
+    grid-column: 1 / -1;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 0;
+    overflow-x: auto;
+  }
+  .kpi-item {
+    flex: 1; min-width: 120px;
+    padding: 10px 16px;
+    border-right: 1px solid var(--border);
+    position: relative;
+  }
+  .kpi-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px; }
+  .kpi-value { font-family: var(--mono); font-size: 18px; font-weight: 400; }
+  .kpi-delta { font-size: 10px; margin-top: 2px; }
+  .kpi-delta.up { color: var(--green); }
+  .kpi-delta.down { color: var(--red); }
+
+  /* SUPPLY CHAIN CANVAS */
+  .canvas-area {
+    background: var(--bg);
+    position: relative;
+    overflow: hidden;
+    padding: 20px;
+  }
+  .sc-canvas {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    gap: 12px;
+  }
+  .sc-title {
+    font-size: 11px; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  /* NODE LAYERS */
+  .sc-layer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+  }
+  .layer-label {
+    font-size: 10px; color: var(--text3);
+    writing-mode: vertical-rl;
+    text-transform: uppercase; letter-spacing: 1px;
+    min-width: 20px;
+  }
+
+  /* NODE CARDS */
+  .node-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: all 0.25s;
+    position: relative;
+    min-width: 110px;
+  }
+  .node-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .node-card.active { border-color: var(--accent); box-shadow: 0 0 12px rgba(0,201,167,0.2); }
+  .node-card.warning { border-color: var(--orange); }
+  .node-card.danger { border-color: var(--red); animation: dangerPulse 1s infinite; }
+  @keyframes dangerPulse { 0%,100%{box-shadow:0 0 0 rgba(239,68,68,0)} 50%{box-shadow:0 0 12px rgba(239,68,68,0.3)} }
+
+  .node-type {
+    font-size: 9px; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin-bottom: 4px;
+  }
+  .node-name { font-size: 12px; font-weight: 500; margin-bottom: 6px; }
+  .node-stocks { display: flex; flex-direction: column; gap: 3px; }
+  .stock-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+  .stock-name { color: var(--text2); min-width: 55px; font-size: 10px; }
+  .stock-bar-wrap {
+    flex: 1; height: 5px; background: var(--border);
+    border-radius: 3px; overflow: hidden; min-width: 50px;
+  }
+  .stock-bar {
+    height: 100%; border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+  .stock-val { font-family: var(--mono); font-size: 10px; color: var(--text2); min-width: 35px; text-align: right; }
+  .stock-bar.high { background: var(--green); }
+  .stock-bar.mid { background: var(--orange); }
+  .stock-bar.low { background: var(--red); }
+
+  /* FLOW ARROWS */
+  .flow-arrows {
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0;
+  }
+  .flow-arrow {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .arrow-line {
+    width: 40px; height: 2px;
+    background: linear-gradient(90deg, var(--border), var(--accent2));
+    position: relative;
+  }
+  .arrow-line::after {
+    content: '';
+    position: absolute; right: -4px; top: -3px;
+    border: 4px solid transparent;
+    border-left-color: var(--accent2);
+  }
+  .flow-vol { font-family: var(--mono); font-size: 9px; color: var(--accent2); }
+  .arrow-line.active-flow {
+    background: linear-gradient(90deg, var(--border), var(--accent));
+  }
+  .arrow-line.active-flow::after { border-left-color: var(--accent); }
+
+  /* EVENT PANEL */
+  .event-panel {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px; font-weight: 500;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-section {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-title {
+    font-size: 10px; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin-bottom: 10px;
+  }
+
+  /* SPEED CONTROL */
+  .speed-control { display: flex; gap: 4px; }
+  .speed-btn {
+    flex: 1; padding: 5px; border: 1px solid var(--border);
+    background: transparent; color: var(--text2);
+    border-radius: 4px; font-size: 11px; cursor: pointer;
+    font-family: var(--font);
+    transition: all 0.2s;
+  }
+  .speed-btn.active { background: var(--accent2); color: #fff; border-color: var(--accent2); }
+
+  /* EVENT BUTTONS */
+  .event-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .event-btn {
+    padding: 8px 8px; border: 1px solid var(--border);
+    background: var(--bg3); color: var(--text2);
+    border-radius: 6px; font-size: 11px; cursor: pointer;
+    font-family: var(--font); text-align: center;
+    transition: all 0.2s; line-height: 1.3;
+  }
+  .event-btn:hover { border-color: var(--accent3); color: var(--accent3); }
+  .event-btn.active-event { border-color: var(--accent3); background: rgba(245,158,11,0.1); color: var(--accent3); }
+
+  /* LOG */
+  .log-area {
+    flex: 1; overflow-y: auto; padding: 8px 16px;
+  }
+  .log-entry {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 5px 0; border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity:0; transform:translateX(5px); } to { opacity:1; transform:none; } }
+  .log-time { font-family: var(--mono); color: var(--text3); min-width: 50px; font-size: 10px; padding-top: 1px; }
+  .log-type {
+    min-width: 52px; font-size: 9px; text-align: center;
+    padding: 1px 5px; border-radius: 3px; font-weight: 500; letter-spacing: 0.5px;
+  }
+  .log-type.info { background: rgba(59,130,246,0.15); color: var(--accent2); }
+  .log-type.warn { background: rgba(245,158,11,0.15); color: var(--orange); }
+  .log-type.error { background: rgba(239,68,68,0.15); color: var(--red); }
+  .log-type.event { background: rgba(139,92,246,0.15); color: var(--accent5); }
+  .log-msg { color: var(--text2); line-height: 1.4; }
+
+  /* DAY COUNTER */
+  .day-counter {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 24px; color: var(--accent);
+  }
+  .day-label { font-family: var(--font); font-size: 10px; color: var(--text3); }
+
+  /* CHART MINI */
+  .chart-mini { height: 50px; position: relative; margin-top: 6px; }
+  canvas { width: 100% !important; }
+
+  /* NODE DETAIL POPUP */
+  .detail-popup {
+    position: absolute; z-index: 50;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px;
+    min-width: 200px; max-width: 250px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    display: none;
+  }
+  .detail-popup.show { display: block; }
+  .popup-title { font-size: 13px; font-weight: 500; margin-bottom: 8px; }
+  .popup-row { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+  .popup-key { color: var(--text2); }
+  .popup-val { font-family: var(--mono); color: var(--text); }
+
+  /* SCENARIO SELECTOR */
+  .scenario-select {
+    width: 100%;
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font);
+    font-size: 11px; padding: 6px 8px; border-radius: 5px;
+    cursor: pointer;
+  }
+
+  /* RESPONSIVE for smaller screens */
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+    .event-panel { max-height: 300px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🥤</div>
+    <div>
+      <div class="logo-text">BevChain Simulator</div>
+      <div class="logo-sub">飲料メーカー 物流シミュレーター v1.0</div>
+    </div>
+  </div>
+  <div class="header-controls">
+    <div class="sim-status">
+      <div class="status-dot running" id="statusDot"></div>
+      <span id="statusText">シミュレーション実行中</span>
+    </div>
+    <div class="day-counter">
+      <div>
+        <div class="day-label">SIMULATION DAY</div>
+        <span id="dayCounter">001</span>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="toggleBtn" onclick="toggleSim()">⏸ 一時停止</button>
+    <button class="btn btn-ghost" onclick="resetSim()">↺ リセット</button>
+  </div>
+</header>
+
+<div class="main">
+  <!-- KPI BAR -->
+  <div class="kpi-bar">
+    <div class="kpi-item">
+      <div class="kpi-label">総在庫量</div>
+      <div class="kpi-value" id="kpiTotalStock" style="color:var(--accent)">0</div>
+      <div class="kpi-delta up" id="kpiTotalStockDelta">-</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-label">欠品率</div>
+      <div class="kpi-value" id="kpiStockout" style="color:var(--red)">0.0%</div>
+      <div class="kpi-delta" id="kpiStockoutDelta">-</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-label">配送達成率</div>
+      <div class="kpi-value" id="kpiDelivery" style="color:var(--green)">100%</div>
+      <div class="kpi-delta up" id="kpiDeliveryDelta">-</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-label">物流コスト/日</div>
+      <div class="kpi-value" id="kpiCost" style="color:var(--accent3)">¥0</div>
+      <div class="kpi-delta" id="kpiCostDelta">-</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-label">在庫回転日数</div>
+      <div class="kpi-value" id="kpiDSI" style="color:var(--accent2)">0</div>
+      <div class="kpi-delta" id="kpiDSIDelta">日</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-label">アクティブイベント</div>
+      <div class="kpi-value" id="kpiEvents" style="color:var(--accent5)">0</div>
+      <div class="kpi-delta" id="kpiEventsLabel" style="color:var(--text3)">件発生中</div>
+    </div>
+  </div>
+
+  <!-- SUPPLY CHAIN CANVAS -->
+  <div class="canvas-area" id="canvasArea">
+    <div class="sc-canvas" id="scCanvas">
+      <!-- Dynamically rendered -->
+    </div>
+    <div class="detail-popup" id="detailPopup">
+      <div class="popup-title" id="popupTitle">-</div>
+      <div id="popupContent"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="event-panel">
+    <div class="panel-header">
+      <span>コントロールパネル</span>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title">シミュレーション速度</div>
+      <div class="speed-control">
+        <button class="speed-btn" onclick="setSpeed(2000)" id="speed1x">×1</button>
+        <button class="speed-btn active" onclick="setSpeed(800)" id="speed2x">×2</button>
+        <button class="speed-btn" onclick="setSpeed(300)" id="speed5x">×5</button>
+        <button class="speed-btn" onclick="setSpeed(100)" id="speed10x">×10</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title">シナリオ選択</div>
+      <select class="scenario-select" id="scenarioSelect" onchange="applyScenario(this.value)">
+        <option value="normal">通常操業（ベースケース）</option>
+        <option value="summer">夏季ピーク（需要+80%）</option>
+        <option value="newproduct">新商品ローンチ</option>
+        <option value="disaster">物流障害シナリオ</option>
+      </select>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title">イベント発生</div>
+      <div class="event-grid">
+        <button class="event-btn" id="evtSeason" onclick="triggerEvent('season')">🌡 季節需要<br>変動</button>
+        <button class="event-btn" id="evtStockout" onclick="triggerEvent('stockout')">⚠ 欠品<br>アラート</button>
+        <button class="event-btn" id="evtDelay" onclick="triggerEvent('delay')">🚚 配送<br>遅延</button>
+        <button class="event-btn" id="evtNew" onclick="triggerEvent('newproduct')">✨ 新商品<br>投入</button>
+        <button class="event-btn" id="evtDisaster" onclick="triggerEvent('disaster')">🌊 自然<br>災害</button>
+        <button class="event-btn" id="evtPromo" onclick="triggerEvent('promo')">📣 販促<br>キャンペーン</button>
+      </div>
+    </div>
+
+    <div class="panel-header" style="margin-top:auto;">
+      <span>アクティビティログ</span>
+      <span style="font-size:10px;color:var(--text3)" id="logCount">0件</span>
+    </div>
+    <div class="log-area" id="logArea"></div>
+  </div>
+</div>
+
+<script>
+// ===============================
+// STATE
+// ===============================
+const PRODUCTS = ['コーラ', 'お茶', 'スポーツ', 'コーヒー'];
+const MAX_STOCK = 5000;
+
+let state = {
+  day: 1,
+  running: true,
+  speed: 800,
+  logs: [],
+  events: [],
+  scenario: 'normal',
+  kpiHistory: [],
+  nodes: {}
+};
+
+function createNodes() {
+  return {
+    factory: {
+      id: 'factory', name: '生産工場', type: '工場',
+      stock: { コーラ: 4800, お茶: 4200, スポーツ: 3600, コーヒー: 3200 },
+      capacity: 5000,
+      productionRate: { コーラ: 200, お茶: 180, スポーツ: 150, コーヒー: 120 },
+      layer: 0
+    },
+    dc_main: {
+      id: 'dc_main', name: '広域DC（東日本）', type: '広域物流センター',
+      stock: { コーラ: 2800, お茶: 2400, スポーツ: 2000, コーヒー: 1600 },
+      capacity: 3000,
+      layer: 1
+    },
+    dc_west: {
+      id: 'dc_west', name: '広域DC（西日本）', type: '広域物流センター',
+      stock: { コーラ: 2200, お茶: 2000, スポーツ: 1800, コーヒー: 1400 },
+      capacity: 3000,
+      layer: 1
+    },
+    tc_tokyo: {
+      id: 'tc_tokyo', name: '地域TC（東京）', type: '地域配送センター',
+      stock: { コーラ: 800, お茶: 700, スポーツ: 600, コーヒー: 500 },
+      capacity: 1000,
+      layer: 2
+    },
+    tc_osaka: {
+      id: 'tc_osaka', name: '地域TC（大阪）', type: '地域配送センター',
+      stock: { コーラ: 700, お茶: 650, スポーツ: 550, コーヒー: 450 },
+      capacity: 1000,
+      layer: 2
+    },
+    tc_nagoya: {
+      id: 'tc_nagoya', name: '地域TC（名古屋）', type: '地域配送センター',
+      stock: { コーラ: 500, お茶: 450, スポーツ: 400, コーヒー: 350 },
+      capacity: 800,
+      layer: 2
+    },
+    retail_super: {
+      id: 'retail_super', name: 'スーパー', type: '小売',
+      stock: { コーラ: 300, お茶: 280, スポーツ: 200, コーヒー: 180 },
+      capacity: 400,
+      layer: 3
+    },
+    retail_cvs: {
+      id: 'retail_cvs', name: 'コンビニ(CVS)', type: '小売',
+      stock: { コーラ: 150, お茶: 130, スポーツ: 120, コーヒー: 110 },
+      capacity: 200,
+      layer: 3
+    },
+    retail_vending: {
+      id: 'retail_vending', name: '自販機・外食', type: '小売',
+      stock: { コーラ: 200, お茶: 180, スポーツ: 150, コーヒー: 120 },
+      capacity: 300,
+      layer: 3
+    }
+  };
+}
+
+// Flow definitions
+const FLOWS = [
+  { from: 'factory', to: 'dc_main', vol: { コーラ: 180, お茶: 160, スポーツ: 130, コーヒー: 100 } },
+  { from: 'factory', to: 'dc_west', vol: { コーラ: 140, お茶: 120, スポーツ: 100, コーヒー: 80 } },
+  { from: 'dc_main', to: 'tc_tokyo', vol: { コーラ: 120, お茶: 110, スポーツ: 90, コーヒー: 70 } },
+  { from: 'dc_main', to: 'tc_nagoya', vol: { コーラ: 60, お茶: 55, スポーツ: 45, コーヒー: 35 } },
+  { from: 'dc_west', to: 'tc_osaka', vol: { コーラ: 100, お茶: 90, スポーツ: 75, コーヒー: 60 } },
+  { from: 'tc_tokyo', to: 'retail_super', vol: { コーラ: 50, お茶: 45, スポーツ: 35, コーヒー: 28 } },
+  { from: 'tc_tokyo', to: 'retail_cvs', vol: { コーラ: 35, お茶: 32, スポーツ: 28, コーヒー: 22 } },
+  { from: 'tc_osaka', to: 'retail_super', vol: { コーラ: 42, お茶: 38, スポーツ: 30, コーヒー: 24 } },
+  { from: 'tc_nagoya', to: 'retail_vending', vol: { コーラ: 38, お茶: 34, スポーツ: 28, コーヒー: 22 } },
+];
+
+// ===============================
+// SIMULATION ENGINE
+// ===============================
+let simInterval = null;
+let eventFlags = {};
+
+function initSim() {
+  state.nodes = createNodes();
+  state.day = 1;
+  state.logs = [];
+  state.kpiHistory = [];
+  state.events = [];
+  eventFlags = {};
+  renderCanvas();
+  updateKPIs();
+  startInterval();
+}
+
+function startInterval() {
+  if (simInterval) clearInterval(simInterval);
+  simInterval = setInterval(simStep, state.speed);
+}
+
+function simStep() {
+  if (!state.running) return;
+  state.day++;
+
+  const multiplier = getDemandMultiplier();
+
+  // Demand (consumption from retail)
+  ['retail_super', 'retail_cvs', 'retail_vending'].forEach(rid => {
+    const node = state.nodes[rid];
+    PRODUCTS.forEach(p => {
+      const base = node.capacity * 0.08;
+      const demand = Math.round(base * multiplier * (0.8 + Math.random() * 0.4));
+      const actual = Math.min(demand, node.stock[p]);
+      node.stock[p] = Math.max(0, node.stock[p] - actual);
+    });
+  });
+
+  // Transport flows
+  FLOWS.forEach(flow => {
+    const from = state.nodes[flow.from];
+    const to = state.nodes[flow.to];
+    if (!from || !to) return;
+    const delayChance = eventFlags.delay ? 0.4 : 0.05;
+    if (Math.random() < delayChance) return;
+    PRODUCTS.forEach(p => {
+      const vol = Math.round(flow.vol[p] * multiplier * (0.85 + Math.random() * 0.3));
+      const actual = Math.min(vol, from.stock[p]);
+      const space = to.capacity - getTotalStock(to);
+      const moved = Math.min(actual, Math.max(0, space));
+      from.stock[p] -= moved;
+      to.stock[p] = Math.min(to.capacity, to.stock[p] + moved);
+    });
+  });
+
+  // Production at factory
+  const factory = state.nodes.factory;
+  PRODUCTS.forEach(p => {
+    const prod = Math.round(factory.productionRate[p] * (0.9 + Math.random() * 0.2));
+    factory.stock[p] = Math.min(factory.capacity, factory.stock[p] + prod);
+  });
+
+  // New product event
+  if (eventFlags.newproduct) {
+    const newProd = 'スポーツ';
+    state.nodes.factory.stock[newProd] = Math.min(
+      state.nodes.factory.capacity,
+      state.nodes.factory.stock[newProd] + 500
+    );
+  }
+
+  // Check alerts
+  checkAlerts();
+  updateKPIs();
+  renderCanvas();
+
+  // Random events
+  if (Math.random() < 0.03 && !eventFlags.disaster) {
+    autoEvent();
+  }
+}
+
+function getDemandMultiplier() {
+  let m = 1.0;
+  if (state.scenario === 'summer') m *= 1.8;
+  if (state.scenario === 'newproduct') m *= 1.2;
+  if (state.scenario === 'disaster') m *= 0.6;
+  if (eventFlags.season) m *= 1.5;
+  if (eventFlags.promo) m *= 1.3;
+  if (eventFlags.disaster) m *= 0.5;
+  return m;
+}
+
+function getTotalStock(node) {
+  return PRODUCTS.reduce((s, p) => s + (node.stock[p] || 0), 0);
+}
+
+function checkAlerts() {
+  Object.values(state.nodes).forEach(node => {
+    const total = getTotalStock(node);
+    const ratio = total / node.capacity;
+    if (ratio < 0.15) {
+      addLog('error', `${node.name}: 在庫危機！(${Math.round(ratio*100)}%)`);
+    } else if (ratio < 0.30) {
+      addLog('warn', `${node.name}: 在庫低下警告 (${Math.round(ratio*100)}%)`);
+    }
+  });
+}
+
+function autoEvent() {
+  const events = ['配送遅延が発生', 'TC在庫補充完了', '需要予測更新'];
+  const e = events[Math.floor(Math.random() * events.length)];
+  addLog('info', e);
+}
+
+// ===============================
+// KPIs
+// ===============================
+function updateKPIs() {
+  const allNodes = Object.values(state.nodes);
+  const totalStock = allNodes.reduce((s, n) => s + getTotalStock(n), 0);
+
+  const retailNodes = ['retail_super', 'retail_cvs', 'retail_vending'].map(id => state.nodes[id]);
+  let stockouts = 0, totalSlots = 0;
+  retailNodes.forEach(n => {
+    PRODUCTS.forEach(p => {
+      totalSlots++;
+      if (n.stock[p] < 20) stockouts++;
+    });
+  });
+  const stockoutRate = (stockouts / totalSlots * 100).toFixed(1);
+
+  const deliveryRate = eventFlags.delay ? (65 + Math.random() * 20).toFixed(0) : (92 + Math.random() * 7).toFixed(0);
+
+  const baseCost = 2800000;
+  const costMult = eventFlags.disaster ? 1.8 : eventFlags.delay ? 1.4 : 1.0;
+  const cost = Math.round(baseCost * costMult * (0.95 + Math.random() * 0.1));
+
+  const dailyDemand = Math.round(300 * getDemandMultiplier());
+  const dsi = dailyDemand > 0 ? Math.round(totalStock / dailyDemand) : 0;
+
+  const activeEvents = Object.values(eventFlags).filter(Boolean).length;
+
+  document.getElementById('kpiTotalStock').textContent = totalStock.toLocaleString();
+  document.getElementById('kpiStockout').textContent = stockoutRate + '%';
+  document.getElementById('kpiDelivery').textContent = deliveryRate + '%';
+  document.getElementById('kpiCost').textContent = '¥' + (cost / 10000).toFixed(0) + '万';
+  document.getElementById('kpiDSI').textContent = dsi;
+  document.getElementById('kpiEvents').textContent = activeEvents;
+
+  const srEl = document.getElementById('kpiStockout');
+  srEl.style.color = parseFloat(stockoutRate) > 10 ? 'var(--red)' : parseFloat(stockoutRate) > 5 ? 'var(--orange)' : 'var(--green)';
+
+  const drEl = document.getElementById('kpiDelivery');
+  drEl.style.color = parseFloat(deliveryRate) > 95 ? 'var(--green)' : parseFloat(deliveryRate) > 80 ? 'var(--orange)' : 'var(--red)';
+
+  document.getElementById('dayCounter').textContent = String(state.day).padStart(3, '0');
+}
+
+// ===============================
+// RENDER
+// ===============================
+const LAYER_NAMES = ['製造', '広域DC', '地域TC', '小売'];
+
+function renderCanvas() {
+  const canvas = document.getElementById('scCanvas');
+  canvas.innerHTML = '';
+
+  const layers = [
+    ['factory'],
+    ['dc_main', 'dc_west'],
+    ['tc_tokyo', 'tc_osaka', 'tc_nagoya'],
+    ['retail_super', 'retail_cvs', 'retail_vending']
+  ];
+
+  layers.forEach((layerIds, li) => {
+    const layerDiv = document.createElement('div');
+    layerDiv.className = 'sc-layer';
+    layerDiv.style.flex = '1';
+
+    const lbl = document.createElement('div');
+    lbl.className = 'layer-label';
+    lbl.textContent = LAYER_NAMES[li];
+    layerDiv.appendChild(lbl);
+
+    const nodesWrap = document.createElement('div');
+    nodesWrap.style.cssText = 'display:flex;gap:10px;flex:1;flex-wrap:wrap;align-items:center';
+
+    layerIds.forEach(nid => {
+      const node = state.nodes[nid];
+      if (!node) return;
+      nodesWrap.appendChild(buildNodeCard(node));
+    });
+
+    // Add flows between layers
+    if (li < layers.length - 1) {
+      const flowDiv = document.createElement('div');
+      flowDiv.className = 'flow-arrows';
+      const arrow = document.createElement('div');
+      arrow.className = 'arrow-line' + (Object.values(eventFlags).some(Boolean) ? ' active-flow' : '');
+      flowDiv.appendChild(arrow);
+      nodesWrap.appendChild(flowDiv);
+    }
+
+    layerDiv.appendChild(nodesWrap);
+    canvas.appendChild(layerDiv);
+
+    // Divider
+    if (li < layers.length - 1) {
+      const div = document.createElement('div');
+      div.style.cssText = 'height:1px;background:var(--border);margin:0 24px;opacity:0.5';
+      canvas.appendChild(div);
+    }
+  });
+}
+
+function buildNodeCard(node) {
+  const total = getTotalStock(node);
+  const ratio = total / node.capacity;
+  let cardClass = 'node-card';
+  if (ratio < 0.15) cardClass += ' danger';
+  else if (ratio < 0.30) cardClass += ' warning';
+
+  const card = document.createElement('div');
+  card.className = cardClass;
+  card.style.flex = '1';
+  card.style.minWidth = '130px';
+  card.onclick = () => showDetail(node, card);
+
+  card.innerHTML = `
+    <div class="node-type">${node.type}</div>
+    <div class="node-name">${node.name}</div>
+    <div class="node-stocks">
+      ${PRODUCTS.map(p => {
+        const val = node.stock[p] || 0;
+        const pct = Math.round(val / node.capacity * 100);
+        const cls = pct > 50 ? 'high' : pct > 20 ? 'mid' : 'low';
+        return `<div class="stock-item">
+          <span class="stock-name">${p}</span>
+          <div class="stock-bar-wrap"><div class="stock-bar ${cls}" style="width:${Math.min(100,pct)}%"></div></div>
+          <span class="stock-val">${val.toLocaleString()}</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:6px;font-size:10px;color:var(--text3);display:flex;justify-content:space-between">
+      <span>総在庫</span>
+      <span style="font-family:var(--mono);color:${ratio<0.15?'var(--red)':ratio<0.30?'var(--orange)':'var(--accent)'}">${Math.round(ratio*100)}%</span>
+    </div>
+  `;
+  return card;
+}
+
+function showDetail(node, el) {
+  const popup = document.getElementById('detailPopup');
+  const total = getTotalStock(node);
+  document.getElementById('popupTitle').textContent = node.name;
+  document.getElementById('popupContent').innerHTML = `
+    <div class="popup-row"><span class="popup-key">タイプ</span><span class="popup-val">${node.type}</span></div>
+    <div class="popup-row"><span class="popup-key">総在庫</span><span class="popup-val">${total.toLocaleString()}</span></div>
+    <div class="popup-row"><span class="popup-key">キャパシティ</span><span class="popup-val">${node.capacity.toLocaleString()}</span></div>
+    <div class="popup-row"><span class="popup-key">稼働率</span><span class="popup-val">${Math.round(total/node.capacity*100)}%</span></div>
+    ${PRODUCTS.map(p => `<div class="popup-row"><span class="popup-key">${p}</span><span class="popup-val">${(node.stock[p]||0).toLocaleString()}</span></div>`).join('')}
+  `;
+  const rect = el.getBoundingClientRect();
+  const area = document.getElementById('canvasArea').getBoundingClientRect();
+  popup.style.left = Math.min(rect.left - area.left, area.width - 260) + 'px';
+  popup.style.top = (rect.bottom - area.top + 8) + 'px';
+  popup.classList.add('show');
+  setTimeout(() => document.addEventListener('click', closePopup, { once: true }), 100);
+}
+
+function closePopup() {
+  document.getElementById('detailPopup').classList.remove('show');
+}
+
+// ===============================
+// CONTROLS
+// ===============================
+function toggleSim() {
+  state.running = !state.running;
+  const btn = document.getElementById('toggleBtn');
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (state.running) {
+    btn.textContent = '⏸ 一時停止';
+    btn.className = 'btn btn-primary';
+    dot.className = 'status-dot running';
+    txt.textContent = 'シミュレーション実行中';
+  } else {
+    btn.textContent = '▶ 再開';
+    btn.className = 'btn btn-ghost';
+    dot.className = 'status-dot paused';
+    txt.textContent = '一時停止中';
+  }
+}
+
+function resetSim() {
+  clearInterval(simInterval);
+  eventFlags = {};
+  document.querySelectorAll('.event-btn').forEach(b => b.classList.remove('active-event'));
+  state.running = true;
+  document.getElementById('logArea').innerHTML = '';
+  state.logs = [];
+  document.getElementById('logCount').textContent = '0件';
+  initSim();
+  addLog('info', 'シミュレーションをリセットしました');
+}
+
+function setSpeed(ms) {
+  state.speed = ms;
+  startInterval();
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+  const map = { 2000: 'speed1x', 800: 'speed2x', 300: 'speed5x', 100: 'speed10x' };
+  document.getElementById(map[ms])?.classList.add('active');
+}
+
+function applyScenario(val) {
+  state.scenario = val;
+  const msgs = {
+    normal: '通常操業シナリオを適用しました',
+    summer: '☀ 夏季ピークシナリオ：需要が大幅増加します',
+    newproduct: '✨ 新商品ローンチ：スポーツドリンクの生産・配送が増加します',
+    disaster: '🌊 物流障害シナリオ：配送遅延・コスト増加が発生します'
+  };
+  addLog('event', msgs[val] || val);
+}
+
+function triggerEvent(type) {
+  const btn = document.getElementById('evt' + type.charAt(0).toUpperCase() + type.slice(1));
+  if (eventFlags[type]) {
+    eventFlags[type] = false;
+    btn?.classList.remove('active-event');
+    addLog('info', getEventOffMsg(type));
+  } else {
+    eventFlags[type] = true;
+    btn?.classList.add('active-event');
+    addLog('event', getEventOnMsg(type));
+  }
+}
+
+function getEventOnMsg(type) {
+  const msgs = {
+    season: '🌡 季節需要変動イベント発生：需要が1.5倍に増加',
+    stockout: '⚠ 欠品アラート：一部TCで在庫不足が発生',
+    delay: '🚚 配送遅延発生：輸送量が40%減少',
+    newproduct: '✨ 新商品投入：スポーツドリンク追加生産開始',
+    disaster: '🌊 自然災害発生：物流ネットワーク障害、需要・供給に深刻な影響',
+    promo: '📣 販促キャンペーン開始：需要が1.3倍に増加'
+  };
+  return msgs[type] || type + ' イベント開始';
+}
+
+function getEventOffMsg(type) {
+  return type + ' イベント終了・通常状態に復帰';
+}
+
+function addLog(type, msg) {
+  const area = document.getElementById('logArea');
+  const dayStr = 'Day' + String(state.day).padStart(3, '0');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${dayStr}</span><span class="log-type ${type}">${type.toUpperCase()}</span><span class="log-msg">${msg}</span>`;
+  area.insertBefore(entry, area.firstChild);
+  state.logs.push({ day: state.day, type, msg });
+  const count = state.logs.length;
+  document.getElementById('logCount').textContent = count + '件';
+  if (area.children.length > 80) area.removeChild(area.lastChild);
+}
+
+// ===============================
+// BOOT
+// ===============================
+initSim();
+addLog('info', '飲料メーカー物流シミュレーターを起動しました');
+addLog('info', '通常操業シナリオで開始。右パネルからイベントを発生させてください。');
+</script>
+</body>
+</html>
