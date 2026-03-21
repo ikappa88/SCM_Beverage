@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: scm_beverage_db
+    environment:
+      POSTGRES_USER: scm_user
+      POSTGRES_PASSWORD: scm_pass
+      POSTGRES_DB: scm_beverage
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scm_user -d scm_beverage"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: scm_beverage_backend
+    environment:
+      DATABASE_URL: postgresql://scm_user:scm_pass@db:5432/scm_beverage
+      SECRET_KEY: dev-secret-key-change-in-production
+      ENVIRONMENT: development
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres_data:
