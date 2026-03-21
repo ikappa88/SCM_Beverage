@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api import auth, users
+from app.api import auth, users, locations, products, routes
 
 app = FastAPI(
     title="SCM Beverage API",
@@ -18,9 +18,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ルーター登録
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(locations.router)
+app.include_router(products.router)
+app.include_router(routes.router)
 
 
 @app.get("/health")
