@@ -1,56 +1,79 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { getAuthUser, logout } from "@/lib/auth";
+import AdminLayout from "@/components/admin/AdminLayout";
+import { apiFetch } from "@/lib/auth";
+
+interface Stats {
+  locations: number;
+  products: number;
+  routes: number;
+  users: number;
+}
 
 export default function AdminDashboard() {
-  const router = useRouter();
-  const [userName, setUserName] = useState("");
+  const [stats, setStats] = useState<Stats>({ locations: 0, products: 0, routes: 0, users: 0 });
 
   useEffect(() => {
-    const user = getAuthUser();
-    if (!user) {
-      router.push("/login");
-      return;
-    }
-    if (user.role === "operator") {
-      router.push("/operator/dashboard");
-      return;
-    }
-    setUserName(user.full_name);
-  }, [router]);
+    const fetchStats = async () => {
+      const [locs, prods, routes, users] = await Promise.all([
+        apiFetch("/api/locations/").then((r) => r.json()),
+        apiFetch("/api/products/").then((r) => r.json()),
+        apiFetch("/api/routes/").then((r) => r.json()),
+        apiFetch("/api/users/").then((r) => r.json()),
+      ]);
+      setStats({
+        locations: locs.length,
+        products: prods.length,
+        routes: routes.length,
+        users: users.length,
+      });
+    };
+    fetchStats();
+  }, []);
 
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
-  };
+  const cards = [
+    { label: "拠点数", value: stats.locations, icon: "🏭", href: "/admin/master/locations" },
+    { label: "商品数", value: stats.products, icon: "🥤", href: "/admin/master/products" },
+    { label: "ルート数", value: stats.routes, icon: "🚚", href: "/admin/master/routes" },
+    { label: "ユーザー数", value: stats.users, icon: "👤", href: "/admin/users" },
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      {/* ヘッダー */}
-      <header className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-xl">🥤</span>
-          <span className="font-semibold">SCM Beverage</span>
-          <span className="text-xs bg-purple-900 text-purple-300 px-2 py-0.5 rounded-full">管理者</span>
-        </div>
-        <div className="flex items-center gap-4 text-sm text-gray-400">
-          <span>{userName}</span>
-          <button
-            onClick={handleLogout}
-            className="text-gray-500 hover:text-white transition-colors"
-          >
-            ログアウト
-          </button>
-        </div>
-      </header>
+    <AdminLayout>
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold">管理者ダッシュボード</h1>
+        <p className="text-sm text-gray-400 mt-0.5">システム全体の管理・監視</p>
+      </div>
 
-      {/* メインコンテンツ（今後実装） */}
-      <main className="p-6">
-        <h1 className="text-xl font-semibold mb-2">管理者ダッシュボード</h1>
-        <p className="text-gray-400 text-sm">マスタ管理・ユーザー管理・全拠点KPIをここに実装します。</p>
-      </main>
-    </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {cards.map((card) => (
+          <a key={card.label} href={card.href}
+            className="bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-600 transition-colors">
+            <div className="text-2xl mb-2">{card.icon}</div>
+            <div className="text-2xl font-semibold">{card.value}</div>
+            <div className="text-xs text-gray-400 mt-0.5">{card.label}</div>
+          </a>
+        ))}
+      </div>
+
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <h2 className="text-sm font-medium mb-3">クイックアクセス</h2>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: "拠点マスタ管理", href: "/admin/master/locations", desc: "拠点の登録・編集・無効化" },
+            { label: "商品マスタ管理", href: "/admin/master/products", desc: "商品の登録・編集・無効化" },
+            { label: "ルートマスタ管理", href: "/admin/master/routes", desc: "輸送ルートの管理" },
+            { label: "ユーザー管理", href: "/admin/users", desc: "アカウント・権限の管理" },
+          ].map((item) => (
+            <a key={item.href} href={item.href}
+              className="border border-gray-800 rounded-lg p-3 hover:border-gray-600 transition-colors">
+              <div className="text-sm font-medium">{item.label}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{item.desc}</div>
+            </a>
+          ))}
+        </div>
+      </div>
+    </AdminLayout>
   );
 }
