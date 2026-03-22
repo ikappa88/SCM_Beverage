@@ -2,7 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api import auth, users, locations, products, routes, inventory, upload
+from app.api import (
+    auth,
+    users,
+    locations,
+    products,
+    routes,
+    inventory,
+    upload,
+    audit_log,
+)
 
 app = FastAPI(
     title="SCM Beverage API",
@@ -25,6 +34,7 @@ app.include_router(products.router)
 app.include_router(routes.router)
 app.include_router(inventory.router)
 app.include_router(upload.router)
+app.include_router(audit_log.router)
 
 
 @app.get("/health")

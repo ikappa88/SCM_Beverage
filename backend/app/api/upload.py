@@ -206,6 +206,17 @@ async def commit_inventory_upload(
                 updated += 1
 
         db.commit()
+        from app.models.audit_log import AuditAction
+        from app.services.audit import record
+
+        record(
+            db,
+            username=current_user.username,
+            action=AuditAction.UPLOAD,
+            resource="inventory",
+            detail=f"CSVアップロード: {updated}件更新",
+            user_id=current_user.id,
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(
