@@ -11,6 +11,7 @@ from app.api import (
     inventory,
     upload,
     audit_log,
+    kpi_threshold,
 )
 
 app = FastAPI(
@@ -35,6 +36,7 @@ app.include_router(routes.router)
 app.include_router(inventory.router)
 app.include_router(upload.router)
 app.include_router(audit_log.router)
+app.include_router(kpi_threshold.router)
 
 
 @app.get("/health")

@@ -11,6 +11,7 @@ const NAV_ITEMS = [
     { label: "ルートマスタ", href: "/admin/master/routes", icon: "🚚" },
     { label: "ユーザー管理", href: "/admin/users", icon: "👤" },
     { label: "監査ログ", href: "/admin/audit", icon: "📋" },
+    { label: "KPI閾値設定", href: "/admin/settings", icon: "⚙️" },
   ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
