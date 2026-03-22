@@ -1,0 +1,128 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import AdminLayout from "@/components/admin/AdminLayout";
+import { apiFetch } from "@/lib/auth";
+
+interface AuditLog {
+  id: number;
+  username: string;
+  action: string;
+  resource: string;
+  resource_id: string | null;
+  detail: string | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+const ACTION_LABELS: Record<string, { label: string; color: string }> = {
+  login:  { label: "ログイン", color: "bg-blue-900 text-blue-300" },
+  create: { label: "作成",     color: "bg-green-900 text-green-300" },
+  update: { label: "更新",     color: "bg-amber-900 text-amber-300" },
+  delete: { label: "削除",     color: "bg-red-900 text-red-300" },
+  upload: { label: "アップロード", color: "bg-purple-900 text-purple-300" },
+};
+
+export default function AuditPage() {
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterUsername, setFilterUsername] = useState("");
+  const [filterAction, setFilterAction] = useState("");
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (filterUsername) params.append("username", filterUsername);
+    if (filterAction) params.append("action", filterAction);
+    params.append("limit", "100");
+    const res = await apiFetch(`/api/audit-logs/?${params.toString()}`);
+    const data = await res.json();
+    setLogs(Array.isArray(data) ? data : []);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchLogs(); }, []);
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleString("ja-JP", {
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+  };
+
+  return (
+    <AdminLayout>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-semibold">監査ログ</h1>
+          <p className="text-sm text-gray-400 mt-0.5">全ユーザーの操作履歴</p>
+        </div>
+      </div>
+
+      {/* フィルター */}
+      <div className="flex gap-3 mb-4">
+        <input
+          value={filterUsername}
+          onChange={(e) => setFilterUsername(e.target.value)}
+          placeholder="ユーザー名で絞り込み..."
+          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500 w-48"
+        />
+        <select
+          value={filterAction}
+          onChange={(e) => setFilterAction(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+        >
+          <option value="">全アクション</option>
+          <option value="login">ログイン</option>
+          <option value="create">作成</option>
+          <option value="update">更新</option>
+          <option value="delete">削除</option>
+          <option value="upload">アップロード</option>
+        </select>
+        <button
+          onClick={fetchLogs}
+          className="px-4 py-2 text-sm font-medium bg-teal-500 hover:bg-teal-400 text-gray-950 rounded-lg transition-colors"
+        >
+          検索
+        </button>
+      </div>
+
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-800">
+              <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">日時</th>
+              <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">ユーザー</th>
+              <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">アクション</th>
+              <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">リソース</th>
+              <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">詳細</th>
+              <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">IPアドレス</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-xs">読み込み中...</td></tr>
+            ) : logs.length === 0 ? (
+              <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-xs">ログがありません</td></tr>
+            ) : logs.map((log) => {
+              const action = ACTION_LABELS[log.action] ?? { label: log.action, color: "bg-gray-800 text-gray-400" };
+              return (
+                <tr key={log.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+                  <td className="py-2.5 px-4 text-gray-400 text-xs font-mono">{formatDate(log.created_at)}</td>
+                  <td className="py-2.5 px-4 text-gray-300 text-xs font-mono">{log.username}</td>
+                  <td className="py-2.5 px-4">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${action.color}`}>{action.label}</span>
+                  </td>
+                  <td className="py-2.5 px-4 text-gray-400 text-xs">{log.resource}{log.resource_id ? ` #${log.resource_id}` : ""}</td>
+                  <td className="py-2.5 px-4 text-gray-500 text-xs max-w-xs truncate">{log.detail ?? "-"}</td>
+                  <td className="py-2.5 px-4 text-gray-600 text-xs font-mono">{log.ip_address ?? "-"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </AdminLayout>
+  );
+}

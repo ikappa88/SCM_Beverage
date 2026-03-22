@@ -5,12 +5,13 @@ import { useRouter, usePathname } from "next/navigation";
 import { getAuthUser, logout } from "@/lib/auth";
 
 const NAV_ITEMS = [
-  { label: "ダッシュボード", href: "/admin/dashboard", icon: "📊" },
-  { label: "拠点マスタ", href: "/admin/master/locations", icon: "🏭" },
-  { label: "商品マスタ", href: "/admin/master/products", icon: "🥤" },
-  { label: "ルートマスタ", href: "/admin/master/routes", icon: "🚚" },
-  { label: "ユーザー管理", href: "/admin/users", icon: "👤" },
-];
+    { label: "ダッシュボード", href: "/admin/dashboard", icon: "📊" },
+    { label: "拠点マスタ", href: "/admin/master/locations", icon: "🏭" },
+    { label: "商品マスタ", href: "/admin/master/products", icon: "🥤" },
+    { label: "ルートマスタ", href: "/admin/master/routes", icon: "🚚" },
+    { label: "ユーザー管理", href: "/admin/users", icon: "👤" },
+    { label: "監査ログ", href: "/admin/audit", icon: "📋" },
+  ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();

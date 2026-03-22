@@ -5,7 +5,11 @@ from typing import Optional
 from app.core.database import get_db
 from app.models.inventory import Inventory
 from app.models.user import User, UserRole
-from app.schemas.inventory import InventoryAlertResponse, InventoryResponse, InventoryUpdate
+from app.schemas.inventory import (
+    InventoryAlertResponse,
+    InventoryResponse,
+    InventoryUpdate,
+)
 from app.services.auth import get_current_user
 
 router = APIRouter(prefix="/api/inventory", tags=["在庫管理"])
@@ -34,7 +38,11 @@ def list_inventory(
         query = query.filter(Inventory.location_id == location_id)
     inventories = query.all()
     if current_user.role == UserRole.OPERATOR and current_user.assigned_location_ids:
-        allowed = [int(s.strip()) for s in current_user.assigned_location_ids.split(",") if s.strip().isdigit()]
+        allowed = [
+            int(s.strip())
+            for s in current_user.assigned_location_ids.split(",")
+            if s.strip().isdigit()
+        ]
         inventories = [inv for inv in inventories if inv.location_id in allowed]
     return inventories
 
@@ -44,12 +52,20 @@ def get_alerts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    inventories = db.query(Inventory).options(
-        joinedload(Inventory.location),
-        joinedload(Inventory.product),
-    ).all()
+    inventories = (
+        db.query(Inventory)
+        .options(
+            joinedload(Inventory.location),
+            joinedload(Inventory.product),
+        )
+        .all()
+    )
     if current_user.role == UserRole.OPERATOR and current_user.assigned_location_ids:
-        allowed = [int(s.strip()) for s in current_user.assigned_location_ids.split(",") if s.strip().isdigit()]
+        allowed = [
+            int(s.strip())
+            for s in current_user.assigned_location_ids.split(",")
+            if s.strip().isdigit()
+        ]
         inventories = [inv for inv in inventories if inv.location_id in allowed]
     alerts = []
     for inv in inventories:
@@ -59,14 +75,16 @@ def get_alerts(
             level = "warning"
         else:
             continue
-        alerts.append(InventoryAlertResponse(
-            inventory_id=inv.id,
-            location_name=inv.location.name,
-            product_name=inv.product.name,
-            quantity=inv.quantity,
-            safety_stock=inv.safety_stock,
-            alert_level=level,
-        ))
+        alerts.append(
+            InventoryAlertResponse(
+                inventory_id=inv.id,
+                location_name=inv.location.name,
+                product_name=inv.product.name,
+                quantity=inv.quantity,
+                safety_stock=inv.safety_stock,
+                alert_level=level,
+            )
+        )
     return alerts
 
 
@@ -77,16 +95,35 @@ def update_inventory(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    inv = db.query(Inventory).options(
-        joinedload(Inventory.location),
-        joinedload(Inventory.product),
-    ).filter(Inventory.id == inventory_id).first()
+    inv = (
+        db.query(Inventory)
+        .options(
+            joinedload(Inventory.location),
+            joinedload(Inventory.product),
+        )
+        .filter(Inventory.id == inventory_id)
+        .first()
+    )
     if not inv:
         raise HTTPException(status_code=404, detail="在庫データが見つかりません")
     if not _check_location_access(current_user, inv.location_id):
-        raise HTTPException(status_code=403, detail="この拠点の在庫を更新する権限がありません")
+        raise HTTPException(
+            status_code=403, detail="この拠点の在庫を更新する権限がありません"
+        )
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(inv, field, value)
     db.commit()
     db.refresh(inv)
+    from app.models.audit_log import AuditAction
+    from app.services.audit import record
+
+    record(
+        db,
+        username=current_user.username,
+        action=AuditAction.UPDATE,
+        resource="inventory",
+        resource_id=str(inventory_id),
+        detail=f"在庫修正: {payload.model_dump(exclude_unset=True)}",
+        user_id=current_user.id,
+    )
     return inv
