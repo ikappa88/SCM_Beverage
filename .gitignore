@@ -8,3 +8,10 @@ build/
 __pycache__/
 *.pyc
 .venv/
+
+# Next.js build output
+frontend/.next/
+frontend/out/
+
+# Python
+backend/.env
