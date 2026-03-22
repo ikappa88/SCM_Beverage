@@ -22,7 +22,8 @@ export default function InventoryPage() {
 
   const fetchData = async () => {
     const res = await apiFetch("/api/inventory/");
-    setInventories(await res.json());
+    const data = await res.json();
+    setInventories(Array.isArray(data) ? data : []);
     setLoading(false);
   };
   useEffect(() => { fetchData(); }, []);
