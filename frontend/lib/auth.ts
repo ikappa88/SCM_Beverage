@@ -7,6 +7,8 @@ export interface AuthUser {
   access_token: string;
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 export function getAuthUser(): AuthUser | null {
   if (typeof window === "undefined") return null;
   const token = localStorage.getItem("access_token");
@@ -44,5 +46,7 @@ export async function apiFetch(
   if (user) {
     headers["Authorization"] = `Bearer ${user.access_token}`;
   }
-  return fetch(`http://localhost:8000${path}`, { ...options, headers });
+  return fetch(`${API_BASE}${path}`, { ...options, headers });
 }
+
+export { API_BASE };

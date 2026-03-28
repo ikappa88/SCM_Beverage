@@ -50,8 +50,7 @@ export default function UploadPage() {
       const user = getAuthUser();
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("http://localhost:8000/api/upload/inventory/preview", {
-        method: "POST",
+      const res = await fetch(`${API_BASE}/api/upload/inventory/commit`, {
         headers: { Authorization: `Bearer ${user?.access_token}` },
         body: formData,
       });

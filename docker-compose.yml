@@ -1,19 +1,17 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:15
     container_name: scm_beverage_db
     environment:
-      POSTGRES_USER: scm_user
-      POSTGRES_PASSWORD: scm_pass
-      POSTGRES_DB: scm_beverage
+      POSTGRES_USER: ${POSTGRES_USER:-scm_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scm_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-scm_beverage}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scm_user -d scm_beverage"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scm_user} -d ${POSTGRES_DB:-scm_beverage}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -21,10 +19,8 @@ services:
   backend:
     build: ./backend
     container_name: scm_beverage_backend
-    environment:
-      DATABASE_URL: postgresql://scm_user:scm_pass@db:5432/scm_beverage
-      SECRET_KEY: dev-secret-key-change-in-production
-      ENVIRONMENT: development
+    env_file:
+      - ./backend/.env
     ports:
       - "8000:8000"
     volumes:
@@ -36,3 +32,39 @@ services:
 
 volumes:
   postgres_data:
+```
+
+### `docker-compose.example.env` を新規作成
+**パス：** `C:\Users\je_is\python_notebook\Git_Folder\SCM_Beverage\docker-compose.example.env`
+```
+# docker-compose用環境変数サンプル
+# 本番環境では .env にコピーして適切な値を設定してください
+POSTGRES_USER=scm_user
+POSTGRES_PASSWORD=your_secure_password_here
+POSTGRES_DB=scm_beverage
+```
+
+### `.gitignore` に追記
+末尾に以下を追加してください：
+```
+# 本番環境変数
+docker-compose.env
+.env.production
+```
+
+---
+
+## Fix 4：APIベースURLの環境変数化
+
+### `frontend/.env.local` を新規作成
+**パス：** `C:\Users\je_is\python_notebook\Git_Folder\SCM_Beverage\frontend\.env.local`
+```
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+### `frontend/.env.example` を新規作成
+**パス：** `C:\Users\je_is\python_notebook\Git_Folder\SCM_Beverage\frontend\.env.example`
+```
+# APIのベースURL
+# 本番環境では適切なURLに変更してください
+NEXT_PUBLIC_API_URL=http://localhost:8000

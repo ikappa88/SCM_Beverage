@@ -1,4 +1,6 @@
 import io
+from typing import Optional
+
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -13,6 +15,8 @@ from app.services.auth import get_current_user
 router = APIRouter(prefix="/api/upload", tags=["データアップロード"])
 
 REQUIRED_COLUMNS = {"location_code", "product_code", "quantity"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_ROWS = 10000
 
 
 def _check_operator_access(user: User, location_id: int) -> bool:
@@ -20,8 +24,141 @@ def _check_operator_access(user: User, location_id: int) -> bool:
         return True
     if not user.assigned_location_ids:
         return False
-    allowed = [s.strip() for s in user.assigned_location_ids.split(",")]
+    allowed = [
+        s.strip() for s in user.assigned_location_ids.split(",") if s.strip().isdigit()
+    ]
     return str(location_id) in allowed
+
+
+def _validate_and_build_rows(df: pd.DataFrame, db: Session, current_user: User):
+    """
+    共通バリデーション。
+    errors: list[dict]  エラー行
+    rows:   list[dict]  正常行（コミット用データ付き）
+    previews: list[dict] プレビュー表示用
+    """
+    errors = []
+    rows = []
+    previews = []
+
+    if len(df) > MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"行数が上限（{MAX_ROWS}行）を超えています（{len(df)}行）",
+        )
+
+    for idx, row in df.iterrows():
+        row_num = int(idx) + 2
+
+        location_code = str(row.get("location_code", "")).strip()
+        product_code = str(row.get("product_code", "")).strip()
+        quantity_str = str(row.get("quantity", "")).strip()
+
+        if not location_code or not product_code or not quantity_str:
+            errors.append(
+                {
+                    "row": row_num,
+                    "reason": "location_code・product_code・quantityは必須です",
+                }
+            )
+            continue
+
+        try:
+            quantity = int(quantity_str)
+            if quantity < 0:
+                raise ValueError
+        except ValueError:
+            errors.append(
+                {
+                    "row": row_num,
+                    "reason": f"quantity '{quantity_str}' は0以上の整数である必要があります",
+                }
+            )
+            continue
+
+        location = (
+            db.query(Location)
+            .filter(Location.code == location_code, Location.is_active == True)
+            .first()
+        )
+        if not location:
+            errors.append(
+                {
+                    "row": row_num,
+                    "reason": f"拠点コード '{location_code}' が見つかりません",
+                }
+            )
+            continue
+
+        if not _check_operator_access(current_user, location.id):
+            errors.append(
+                {
+                    "row": row_num,
+                    "reason": f"拠点 '{location_code}' へのアクセス権限がありません",
+                }
+            )
+            continue
+
+        product = (
+            db.query(Product)
+            .filter(Product.code == product_code, Product.is_active == True)
+            .first()
+        )
+        if not product:
+            errors.append(
+                {
+                    "row": row_num,
+                    "reason": f"商品コード '{product_code}' が見つかりません",
+                }
+            )
+            continue
+
+        inv = (
+            db.query(Inventory)
+            .filter(
+                Inventory.location_id == location.id,
+                Inventory.product_id == product.id,
+            )
+            .first()
+        )
+
+        rows.append(
+            {
+                "inventory_id": inv.id if inv else None,
+                "quantity": quantity,
+            }
+        )
+        previews.append(
+            {
+                "row": row_num,
+                "location_code": location_code,
+                "location_name": location.name,
+                "product_code": product_code,
+                "product_name": product.name,
+                "current_quantity": inv.quantity if inv else None,
+                "new_quantity": quantity,
+                "inventory_id": inv.id if inv else None,
+            }
+        )
+
+    return errors, rows, previews
+
+
+def _read_csv(content: bytes) -> pd.DataFrame:
+    try:
+        df = pd.read_csv(io.BytesIO(content), dtype=str)
+    except Exception:
+        raise HTTPException(
+            status_code=400, detail="CSVファイルの読み込みに失敗しました"
+        )
+    df.columns = df.columns.str.strip().str.lower()
+    missing = REQUIRED_COLUMNS - set(df.columns)
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"必須列が不足しています: {', '.join(sorted(missing))}",
+        )
+    return df
 
 
 @router.post("/inventory/preview")
@@ -37,116 +174,13 @@ async def preview_inventory_upload(
         )
 
     content = await file.read()
-    try:
-        df = pd.read_csv(io.BytesIO(content), dtype=str)
-    except Exception:
+    if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
-            status_code=400, detail="CSVファイルの読み込みに失敗しました"
+            status_code=400, detail=f"ファイルサイズが上限（10MB）を超えています"
         )
 
-    df.columns = df.columns.str.strip().str.lower()
-    missing = REQUIRED_COLUMNS - set(df.columns)
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"必須列が不足しています: {', '.join(sorted(missing))}",
-        )
-
-    errors = []
-    previews = []
-
-    for idx, row in df.iterrows():
-        row_num = int(idx) + 2  # ヘッダー行を含むため+2
-        location_code = str(row.get("location_code", "")).strip()
-        product_code = str(row.get("product_code", "")).strip()
-        quantity_str = str(row.get("quantity", "")).strip()
-
-        # 空チェック
-        if not location_code or not product_code or not quantity_str:
-            errors.append(
-                {
-                    "row": row_num,
-                    "reason": "location_code・product_code・quantityは必須です",
-                }
-            )
-            continue
-
-        # 数値チェック
-        try:
-            quantity = int(quantity_str)
-            if quantity < 0:
-                raise ValueError
-        except ValueError:
-            errors.append(
-                {
-                    "row": row_num,
-                    "reason": f"quantity '{quantity_str}' は0以上の整数である必要があります",
-                }
-            )
-            continue
-
-        # 拠点チェック
-        location = (
-            db.query(Location)
-            .filter(Location.code == location_code, Location.is_active == True)
-            .first()
-        )
-        if not location:
-            errors.append(
-                {
-                    "row": row_num,
-                    "reason": f"拠点コード '{location_code}' が見つかりません",
-                }
-            )
-            continue
-
-        # 権限チェック
-        if not _check_operator_access(current_user, location.id):
-            errors.append(
-                {
-                    "row": row_num,
-                    "reason": f"拠点 '{location_code}' へのアクセス権限がありません",
-                }
-            )
-            continue
-
-        # 商品チェック
-        product = (
-            db.query(Product)
-            .filter(Product.code == product_code, Product.is_active == True)
-            .first()
-        )
-        if not product:
-            errors.append(
-                {
-                    "row": row_num,
-                    "reason": f"商品コード '{product_code}' が見つかりません",
-                }
-            )
-            continue
-
-        # 現在の在庫を取得
-        inv = (
-            db.query(Inventory)
-            .filter(
-                Inventory.location_id == location.id,
-                Inventory.product_id == product.id,
-            )
-            .first()
-        )
-
-        previews.append(
-            {
-                "row": row_num,
-                "location_code": location_code,
-                "location_name": location.name,
-                "product_code": product_code,
-                "product_name": product.name,
-                "current_quantity": inv.quantity if inv else None,
-                "new_quantity": quantity,
-                "inventory_id": inv.id if inv else None,
-            }
-        )
+    df = _read_csv(content)
+    errors, _, previews = _validate_and_build_rows(df, db, current_user)
 
     return {
         "total_rows": len(df),
@@ -170,42 +204,37 @@ async def commit_inventory_upload(
         )
 
     content = await file.read()
-    try:
-        df = pd.read_csv(io.BytesIO(content), dtype=str)
-    except Exception:
+    if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
-            status_code=400, detail="CSVファイルの読み込みに失敗しました"
+            status_code=400, detail=f"ファイルサイズが上限（10MB）を超えています"
         )
 
-    df.columns = df.columns.str.strip().str.lower()
+    df = _read_csv(content)
 
-    updated = 0
+    # プレビューと同じ検証を実行
+    errors, rows, _ = _validate_and_build_rows(df, db, current_user)
+
+    # 1行でもエラーがあれば全件中断
+    if errors:
+        raise HTTPException(
+            status_code=400,
+            detail=f"バリデーションエラーが{len(errors)}件あります。取り込みを中断しました。プレビューで内容を確認してください。",
+        )
+
+    # 全件正常 → トランザクションでコミット
     try:
-        for _, row in df.iterrows():
-            location_code = str(row.get("location_code", "")).strip()
-            product_code = str(row.get("product_code", "")).strip()
-            quantity = int(str(row.get("quantity", "0")).strip())
-
-            location = db.query(Location).filter(Location.code == location_code).first()
-            product = db.query(Product).filter(Product.code == product_code).first()
-            if not location or not product:
+        updated = 0
+        for row in rows:
+            if row["inventory_id"] is None:
                 continue
-            if not _check_operator_access(current_user, location.id):
-                continue
-
             inv = (
-                db.query(Inventory)
-                .filter(
-                    Inventory.location_id == location.id,
-                    Inventory.product_id == product.id,
-                )
-                .first()
+                db.query(Inventory).filter(Inventory.id == row["inventory_id"]).first()
             )
             if inv:
-                inv.quantity = quantity
+                inv.quantity = row["quantity"]
                 updated += 1
-
         db.commit()
+
         from app.models.audit_log import AuditAction
         from app.services.audit import record
 
