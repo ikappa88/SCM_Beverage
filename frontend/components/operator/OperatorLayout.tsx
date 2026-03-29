@@ -3,11 +3,17 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { getAuthUser, logout } from "@/lib/auth";
+import Link from "next/link";
 
 const NAV_ITEMS = [
-  { label: "ダッシュボード", href: "/operator/dashboard", icon: "📊" },
-  { label: "在庫照会", href: "/operator/inventory", icon: "📦" },
-  { label: "データアップロード", href: "/operator/upload", icon: "📤" },
+  { label: "ダッシュボード",   href: "/operator/dashboard", icon: "📊" },
+  { label: "在庫照会",         href: "/operator/inventory", icon: "📦" },
+  { label: "アラート管理",     href: "/operator/alerts",    icon: "🔔" },
+  { label: "発注・補充指示",   href: "/operator/orders",    icon: "📋" },
+  { label: "配送管理",         href: "/operator/delivery",  icon: "🚚" },
+  { label: "計画ビュー",       href: "/operator/planning",  icon: "📅" },
+  { label: "データアップロード", href: "/operator/upload",  icon: "📤" },
+  { label: "操作履歴",         href: "/operator/history",   icon: "🕐" },
 ];
 
 export default function OperatorLayout({ children }: { children: React.ReactNode }) {
@@ -31,10 +37,10 @@ export default function OperatorLayout({ children }: { children: React.ReactNode
     const cls = "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors " +
       (isActive ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white hover:bg-gray-800");
     return (
-      <a key={item.href} href={item.href} className={cls}>
+      <Link key={item.href} href={item.href} className={cls}>
         <span className="text-base">{item.icon}</span>
         {item.label}
-      </a>
+      </Link>
     );
   });
 

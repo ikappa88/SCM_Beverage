@@ -5,3 +5,6 @@ from app.models.route import Route
 from app.models.inventory import Inventory
 from app.models.audit_log import AuditLog
 from app.models.kpi_threshold import KpiThreshold
+from app.models.alert import Alert
+from app.models.order import Order
+from app.models.delivery_record import DeliveryRecord

@@ -12,6 +12,9 @@ from app.api import (
     upload,
     audit_log,
     kpi_threshold,
+    alerts,
+    orders,
+    deliveries,
 )
 
 app = FastAPI(
@@ -37,6 +40,9 @@ app.include_router(inventory.router)
 app.include_router(upload.router)
 app.include_router(audit_log.router)
 app.include_router(kpi_threshold.router)
+app.include_router(alerts.router)
+app.include_router(orders.router)
+app.include_router(deliveries.router)
 
 
 @app.get("/health")

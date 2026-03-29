@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import AdminLayout from "@/components/admin/AdminLayout";
+import OperatorLayout from "@/components/operator/OperatorLayout";
 import { apiFetch } from "@/lib/auth";
 
 interface AuditLog {
@@ -18,7 +18,7 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   upload: { label: "アップロード",   color: "bg-purple-900 text-purple-300" },
 };
 
-export default function AuditPage() {
+export default function HistoryPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterUsername, setFilterUsername] = useState("");
@@ -50,11 +50,11 @@ export default function AuditPage() {
     });
 
   return (
-    <AdminLayout>
+    <OperatorLayout>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold">監査ログ</h1>
-          <p className="text-sm text-gray-400 mt-0.5">全ユーザーの操作履歴</p>
+          <h1 className="text-xl font-semibold">操作履歴</h1>
+          <p className="text-sm text-gray-400 mt-0.5">担当拠点とマスタに関する操作履歴</p>
         </div>
         <button
           onClick={() => setSortOrder((s) => s === "desc" ? "asc" : "desc")}
@@ -105,14 +105,13 @@ export default function AuditPage() {
               <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">アクション</th>
               <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">リソース</th>
               <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">詳細</th>
-              <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">IPアドレス</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-xs">読み込み中...</td></tr>
+              <tr><td colSpan={5} className="py-8 text-center text-gray-400 text-xs">読み込み中...</td></tr>
             ) : logs.length === 0 ? (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-xs">ログがありません</td></tr>
+              <tr><td colSpan={5} className="py-8 text-center text-gray-500 text-xs">ログがありません</td></tr>
             ) : logs.map((log) => {
               const action = ACTION_LABELS[log.action] ?? { label: log.action, color: "bg-gray-800 text-gray-400" };
               return (
@@ -126,13 +125,12 @@ export default function AuditPage() {
                     {log.resource}{log.resource_id ? ` #${log.resource_id}` : ""}
                   </td>
                   <td className="py-2.5 px-4 text-gray-500 text-xs max-w-xs truncate">{log.detail ?? "-"}</td>
-                  <td className="py-2.5 px-4 text-gray-600 text-xs font-mono">{log.ip_address ?? "-"}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-    </AdminLayout>
+    </OperatorLayout>
   );
 }

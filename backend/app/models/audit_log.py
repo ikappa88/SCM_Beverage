@@ -37,8 +37,12 @@ class AuditLog(Base, TimestampMixin):
         Text, nullable=True, comment="変更内容の詳細"
     )
     ip_address: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    location_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("locations.id"), nullable=True, comment="関連拠点ID（拠点スコープ操作のみ）"
+    )
 
     user = relationship("User", foreign_keys=[user_id])
+    location = relationship("Location", foreign_keys=[location_id])
 
     def __repr__(self) -> str:
         return f"<AuditLog user={self.username} action={self.action} resource={self.resource}>"

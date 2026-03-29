@@ -13,6 +13,7 @@ def record(
     detail: Optional[str] = None,
     user_id: Optional[int] = None,
     ip_address: Optional[str] = None,
+    location_id: Optional[int] = None,
 ) -> AuditLog:
     """監査ログを記録する"""
     log = AuditLog(
@@ -23,6 +24,7 @@ def record(
         resource_id=resource_id,
         detail=detail,
         ip_address=ip_address,
+        location_id=location_id,
     )
     db.add(log)
     db.commit()
