@@ -1,26 +1,21 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { apiFetch } from "@/lib/auth";
 
 interface AuditLog {
-  id: number;
-  username: string;
-  action: string;
-  resource: string;
-  resource_id: string | null;
-  detail: string | null;
-  ip_address: string | null;
-  created_at: string;
+  id: number; username: string; action: string;
+  resource: string; resource_id: string | null;
+  detail: string | null; ip_address: string | null;
+  location_id: number | null; created_at: string;
 }
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
-  login:  { label: "ログイン", color: "bg-blue-900 text-blue-300" },
-  create: { label: "作成",     color: "bg-green-900 text-green-300" },
-  update: { label: "更新",     color: "bg-amber-900 text-amber-300" },
-  delete: { label: "削除",     color: "bg-red-900 text-red-300" },
-  upload: { label: "アップロード", color: "bg-purple-900 text-purple-300" },
+  login:  { label: "ログイン",       color: "bg-blue-900 text-blue-300" },
+  create: { label: "作成",           color: "bg-green-900 text-green-300" },
+  update: { label: "更新",           color: "bg-amber-900 text-amber-300" },
+  delete: { label: "削除",           color: "bg-red-900 text-red-300" },
+  upload: { label: "アップロード",   color: "bg-purple-900 text-purple-300" },
 };
 
 export default function AuditPage() {
@@ -28,28 +23,31 @@ export default function AuditPage() {
   const [loading, setLoading] = useState(true);
   const [filterUsername, setFilterUsername] = useState("");
   const [filterAction, setFilterAction] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
 
   const fetchLogs = async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (filterUsername) params.append("username", filterUsername);
-    if (filterAction) params.append("action", filterAction);
+    if (filterAction)   params.append("action", filterAction);
+    if (dateFrom)       params.append("date_from", dateFrom);
+    if (dateTo)         params.append("date_to", dateTo);
+    params.append("sort_order", sortOrder);
     params.append("limit", "100");
     const res = await apiFetch(`/api/audit-logs/?${params.toString()}`);
     const data = await res.json();
     setLogs(Array.isArray(data) ? data : []);
     setLoading(false);
   };
+  useEffect(() => { fetchLogs(); }, [sortOrder]);
 
-  useEffect(() => { fetchLogs(); }, []);
-
-  const formatDate = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleString("ja-JP", {
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleString("ja-JP", {
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", second: "2-digit",
     });
-  };
 
   return (
     <AdminLayout>
@@ -58,15 +56,20 @@ export default function AuditPage() {
           <h1 className="text-xl font-semibold">監査ログ</h1>
           <p className="text-sm text-gray-400 mt-0.5">全ユーザーの操作履歴</p>
         </div>
+        <button
+          onClick={() => setSortOrder((s) => s === "desc" ? "asc" : "desc")}
+          className="px-3 py-1.5 text-sm text-gray-400 border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
+        >
+          {sortOrder === "desc" ? "▼ 新しい順" : "▲ 古い順"}
+        </button>
       </div>
 
-      {/* フィルター */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4">
         <input
           value={filterUsername}
           onChange={(e) => setFilterUsername(e.target.value)}
           placeholder="ユーザー名で絞り込み..."
-          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500 w-48"
+          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500 w-44"
         />
         <select
           value={filterAction}
@@ -80,10 +83,15 @@ export default function AuditPage() {
           <option value="delete">削除</option>
           <option value="upload">アップロード</option>
         </select>
-        <button
-          onClick={fetchLogs}
-          className="px-4 py-2 text-sm font-medium bg-teal-500 hover:bg-teal-400 text-gray-950 rounded-lg transition-colors"
-        >
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+        />
+        <span className="self-center text-gray-500 text-sm">〜</span>
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+        />
+        <button onClick={fetchLogs}
+          className="px-4 py-2 text-sm font-medium bg-teal-500 hover:bg-teal-400 text-gray-950 rounded-lg transition-colors">
           検索
         </button>
       </div>
@@ -114,7 +122,9 @@ export default function AuditPage() {
                   <td className="py-2.5 px-4">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${action.color}`}>{action.label}</span>
                   </td>
-                  <td className="py-2.5 px-4 text-gray-400 text-xs">{log.resource}{log.resource_id ? ` #${log.resource_id}` : ""}</td>
+                  <td className="py-2.5 px-4 text-gray-400 text-xs">
+                    {log.resource}{log.resource_id ? ` #${log.resource_id}` : ""}
+                  </td>
                   <td className="py-2.5 px-4 text-gray-500 text-xs max-w-xs truncate">{log.detail ?? "-"}</td>
                   <td className="py-2.5 px-4 text-gray-600 text-xs font-mono">{log.ip_address ?? "-"}</td>
                 </tr>

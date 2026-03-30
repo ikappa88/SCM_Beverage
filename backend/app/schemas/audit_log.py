@@ -13,6 +13,7 @@ class AuditLogResponse(BaseModel):
     resource_id: Optional[str]
     detail: Optional[str]
     ip_address: Optional[str]
+    location_id: Optional[int]
     created_at: datetime
 
     class Config:

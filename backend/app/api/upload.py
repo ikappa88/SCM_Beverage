@@ -11,6 +11,7 @@ from app.models.location import Location
 from app.models.product import Product
 from app.models.user import User, UserRole
 from app.services.auth import get_current_user
+from app.api.inventory import check_location_access
 
 router = APIRouter(prefix="/api/upload", tags=["データアップロード"])
 
@@ -20,9 +21,10 @@ MAX_ROWS = 10000
 
 
 def _check_operator_access(user: User, location_id: int) -> bool:
+    """inventory.pyと同一ロジック（循環インポート回避のため複製）"""
     if user.role == UserRole.ADMINISTRATOR:
         return True
-    if not user.assigned_location_ids:
+    if not user.assigned_location_ids or not user.assigned_location_ids.strip():
         return False
     allowed = [
         s.strip() for s in user.assigned_location_ids.split(",") if s.strip().isdigit()
@@ -122,9 +124,18 @@ def _validate_and_build_rows(df: pd.DataFrame, db: Session, current_user: User):
             .first()
         )
 
+        if inv is None:
+            errors.append(
+                {
+                    "row": row_num,
+                    "reason": f"拠点 '{location_code}' × 商品 '{product_code}' の在庫レコードが存在しません",
+                }
+            )
+            continue
+
         rows.append(
             {
-                "inventory_id": inv.id if inv else None,
+                "inventory_id": inv.id,
                 "quantity": quantity,
             }
         )

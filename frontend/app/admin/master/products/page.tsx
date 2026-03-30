@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import MasterTable from "@/components/admin/MasterTable";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import HistoryPanel from "@/components/admin/HistoryPanel";
 import { apiFetch } from "@/lib/auth";
 
 interface Product {
@@ -28,11 +29,13 @@ export default function ProductsPage() {
   const [editTarget, setEditTarget] = useState<Product | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [confirm, setConfirm] = useState<{ target: Product } | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<Product | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const fetchProducts = async () => {
     const res = await apiFetch("/api/products/");
+    if (!res.ok) return;
     setProducts(await res.json());
     setLoading(false);
   };
@@ -114,7 +117,7 @@ export default function ProductsPage() {
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         {loading ? <p className="text-gray-400 text-sm">読み込み中...</p> : (
-          <MasterTable columns={columns} data={products} onEdit={openEdit} onDeactivate={(p) => setConfirm({ target: p })} />
+          <MasterTable columns={columns} data={products} onEdit={openEdit} onDeactivate={(p) => setConfirm({ target: p })} onHistory={(p) => setHistoryTarget(p)} />
         )}
       </div>
 
@@ -169,6 +172,15 @@ export default function ProductsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {historyTarget && (
+        <HistoryPanel
+          resource="product"
+          resourceId={historyTarget.id}
+          title={`${historyTarget.name}（${historyTarget.code}）`}
+          onClose={() => setHistoryTarget(null)}
+        />
       )}
 
       {confirm && (

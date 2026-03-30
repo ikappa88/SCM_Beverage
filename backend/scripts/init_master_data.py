@@ -16,6 +16,9 @@ from app.core.database import SessionLocal
 from app.models.location import Location, LocationType
 from app.models.product import Product
 from app.models.route import Route
+from app.models.kpi_threshold import KpiThreshold
+from app.models.scenario import Scenario
+from app.models.user import User
 
 
 def create_locations(db):
@@ -263,12 +266,129 @@ def create_routes(db):
     print(f"ルートデータを{len(routes)}件作成しました。")
 
 
+def create_kpi_thresholds(db):
+    if db.query(KpiThreshold).count() > 0:
+        print("KPI閾値データが既に存在します。スキップします。")
+        return
+
+    thresholds = [
+        KpiThreshold(
+            kpi_key="stockout_rate",
+            label="欠品率",
+            warning_value=5.0,
+            danger_value=10.0,
+            unit="%",
+            description="全SKUのうち在庫ゼロとなった品目の割合。危険閾値超過時はアラートを発報する。",
+        ),
+        KpiThreshold(
+            kpi_key="inventory_turnover",
+            label="在庫回転率",
+            warning_value=4.0,
+            danger_value=2.0,
+            unit="回/月",
+            description="月次出荷量 ÷ 平均在庫量。低下すると過剰在庫・滞留リスクが高まる。",
+        ),
+        KpiThreshold(
+            kpi_key="delivery_delay_rate",
+            label="配送遅延率",
+            warning_value=5.0,
+            danger_value=15.0,
+            unit="%",
+            description="全配送のうち予定日を超過した件数の割合。",
+        ),
+        KpiThreshold(
+            kpi_key="order_fulfillment_rate",
+            label="発注充足率",
+            warning_value=90.0,
+            danger_value=80.0,
+            unit="%",
+            description="発注に対して期日通りに納品された数量の割合。低下時は供給力不足を示す。",
+        ),
+        KpiThreshold(
+            kpi_key="safety_stock_coverage",
+            label="安全在庫カバー率",
+            warning_value=80.0,
+            danger_value=60.0,
+            unit="%",
+            description="安全在庫水準を維持できているSKU数の割合。",
+        ),
+    ]
+    for t in thresholds:
+        db.add(t)
+    db.commit()
+    print(f"KPI閾値データを{len(thresholds)}件作成しました。")
+
+
+def create_scenarios(db):
+    if db.query(Scenario).count() > 0:
+        print("シナリオデータが既に存在します。スキップします。")
+        return
+
+    # 管理者ユーザーIDを取得（作成者として設定）
+    admin = db.query(User).filter(User.username == "admin").first()
+    created_by = admin.id if admin else 1
+
+    scenarios = [
+        Scenario(
+            code="SCN-BASE",
+            name="基準シナリオ",
+            description="現状の需要・コストを基準とした標準シナリオ。",
+            demand_factor=1.00,
+            cost_factor=1.00,
+            is_active=True,
+            created_by=created_by,
+        ),
+        Scenario(
+            code="SCN-HI-DEM",
+            name="需要増（+20%）シナリオ",
+            description="夏季・キャンペーン期等の需要増加を想定。需要係数1.20。",
+            demand_factor=1.20,
+            cost_factor=1.00,
+            is_active=True,
+            created_by=created_by,
+        ),
+        Scenario(
+            code="SCN-LO-DEM",
+            name="需要減（-20%）シナリオ",
+            description="オフシーズン・景気低迷期等の需要減退を想定。需要係数0.80。",
+            demand_factor=0.80,
+            cost_factor=1.00,
+            is_active=True,
+            created_by=created_by,
+        ),
+        Scenario(
+            code="SCN-HI-COST",
+            name="コスト増（+15%）シナリオ",
+            description="燃料費・原材料費上昇等のコスト増加を想定。コスト係数1.15。",
+            demand_factor=1.00,
+            cost_factor=1.15,
+            is_active=True,
+            created_by=created_by,
+        ),
+        Scenario(
+            code="SCN-STRESS",
+            name="ストレステスト（需要増＋コスト増）",
+            description="最悪ケースのシミュレーション用。需要1.30・コスト1.20。",
+            demand_factor=1.30,
+            cost_factor=1.20,
+            is_active=True,
+            created_by=created_by,
+        ),
+    ]
+    for s in scenarios:
+        db.add(s)
+    db.commit()
+    print(f"シナリオデータを{len(scenarios)}件作成しました。")
+
+
 def main():
     db = SessionLocal()
     try:
         create_locations(db)
         create_products(db)
         create_routes(db)
+        create_kpi_thresholds(db)
+        create_scenarios(db)
         print("\n初期マスタデータの投入が完了しました。")
     except Exception as e:
         db.rollback()
