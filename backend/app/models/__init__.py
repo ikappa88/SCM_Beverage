@@ -8,3 +8,4 @@ from app.models.kpi_threshold import KpiThreshold
 from app.models.alert import Alert
 from app.models.order import Order
 from app.models.delivery_record import DeliveryRecord
+from app.models.scenario import Scenario

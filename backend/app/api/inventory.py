@@ -1,6 +1,8 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
+import io
+import pandas as pd
 
 from app.core.database import get_db
 from app.models.inventory import Inventory
@@ -9,8 +11,9 @@ from app.schemas.inventory import (
     InventoryAlertResponse,
     InventoryResponse,
     InventoryUpdate,
+    SafetyStockUpdate,
 )
-from app.services.auth import get_current_user
+from app.services.auth import get_current_user, require_administrator
 
 router = APIRouter(prefix="/api/inventory", tags=["在庫管理"])
 
@@ -47,6 +50,20 @@ def get_allowed_location_ids(user: User) -> Optional[list[int]]:
         for s in user.assigned_location_ids.split(",")
         if s.strip().isdigit()
     ]
+
+
+@router.get("/safety-stocks", response_model=list[InventoryResponse])
+def list_safety_stocks(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_administrator),
+):
+    """全拠点×商品の安全在庫一覧（管理者のみ）"""
+    return (
+        db.query(Inventory)
+        .options(joinedload(Inventory.location), joinedload(Inventory.product))
+        .order_by(Inventory.location_id, Inventory.product_id)
+        .all()
+    )
 
 
 @router.get("/", response_model=list[InventoryResponse])
@@ -156,3 +173,93 @@ def update_inventory(
         location_id=inv.location_id,
     )
     return inv
+
+
+@router.patch("/{inventory_id}/safety-stock", response_model=InventoryResponse)
+def update_safety_stock(
+    inventory_id: int,
+    payload: SafetyStockUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_administrator),
+):
+    """安全在庫・最大在庫の個別更新（管理者のみ）"""
+    inv = (
+        db.query(Inventory)
+        .options(joinedload(Inventory.location), joinedload(Inventory.product))
+        .filter(Inventory.id == inventory_id)
+        .first()
+    )
+    if not inv:
+        raise HTTPException(status_code=404, detail="在庫データが見つかりません")
+
+    inv.safety_stock = payload.safety_stock
+    inv.max_stock = payload.max_stock
+    db.commit()
+    db.refresh(inv)
+
+    from app.models.audit_log import AuditAction
+    from app.services.audit import record
+
+    record(
+        db,
+        username=current_user.username,
+        action=AuditAction.UPDATE,
+        resource="inventory",
+        resource_id=str(inventory_id),
+        detail=f"安全在庫設定: safety_stock={payload.safety_stock}, max_stock={payload.max_stock}",
+        user_id=current_user.id,
+        location_id=inv.location_id,
+    )
+    return inv
+
+
+@router.post("/safety-stocks/bulk")
+async def bulk_update_safety_stocks(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_administrator),
+):
+    """CSVによる安全在庫一括更新（管理者のみ）
+    CSVフォーマット: inventory_id, safety_stock, max_stock
+    """
+    content = await file.read()
+    try:
+        df = pd.read_csv(io.StringIO(content.decode("utf-8")))
+    except Exception:
+        raise HTTPException(status_code=400, detail="CSVの読み込みに失敗しました")
+
+    required = {"inventory_id", "safety_stock", "max_stock"}
+    if not required.issubset(df.columns):
+        raise HTTPException(status_code=400, detail=f"必須列が不足しています: {required}")
+
+    updated = 0
+    errors = []
+    for _, row in df.iterrows():
+        inv = db.query(Inventory).filter(Inventory.id == int(row["inventory_id"])).first()
+        if not inv:
+            errors.append(f"inventory_id={row['inventory_id']} が見つかりません")
+            continue
+        inv.safety_stock = int(row["safety_stock"])
+        inv.max_stock = int(row["max_stock"])
+        updated += 1
+
+    if errors:
+        db.rollback()
+        raise HTTPException(status_code=400, detail={"errors": errors})
+
+    db.commit()
+
+    from app.models.audit_log import AuditAction
+    from app.services.audit import record
+
+    record(
+        db,
+        username=current_user.username,
+        action=AuditAction.UPLOAD,
+        resource="inventory",
+        resource_id=None,
+        detail=f"安全在庫CSV一括更新: {updated}件",
+        user_id=current_user.id,
+        location_id=None,
+    )
+    return {"updated": updated}

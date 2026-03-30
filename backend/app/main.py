@@ -15,6 +15,8 @@ from app.api import (
     alerts,
     orders,
     deliveries,
+    scenarios,
+    templates,
 )
 
 app = FastAPI(
@@ -25,7 +27,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,6 +45,8 @@ app.include_router(kpi_threshold.router)
 app.include_router(alerts.router)
 app.include_router(orders.router)
 app.include_router(deliveries.router)
+app.include_router(scenarios.router)
+app.include_router(templates.router)
 
 
 @app.get("/health")

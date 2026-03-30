@@ -1,0 +1,10 @@
+[
+  {
+    "id": "inventory",
+    "name": "在庫データアップロード",
+    "filename": "inventory_template.csv",
+    "version": "1.0.0",
+    "description": "在庫数量の一括アップロード用CSVテンプレート（location_code, product_code, quantity）",
+    "updated_at": "2026-03-30"
+  }
+]

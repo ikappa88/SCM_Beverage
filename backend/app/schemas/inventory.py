@@ -33,3 +33,8 @@ class InventoryAlertResponse(BaseModel):
     quantity: int
     safety_stock: int
     alert_level: str
+
+
+class SafetyStockUpdate(BaseModel):
+    safety_stock: int
+    max_stock: int

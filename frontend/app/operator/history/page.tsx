@@ -21,7 +21,6 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
 export default function HistoryPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterUsername, setFilterUsername] = useState("");
   const [filterAction, setFilterAction] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -30,13 +29,12 @@ export default function HistoryPage() {
   const fetchLogs = async () => {
     setLoading(true);
     const params = new URLSearchParams();
-    if (filterUsername) params.append("username", filterUsername);
-    if (filterAction)   params.append("action", filterAction);
-    if (dateFrom)       params.append("date_from", dateFrom);
-    if (dateTo)         params.append("date_to", dateTo);
+    if (filterAction) params.append("action", filterAction);
+    if (dateFrom)     params.append("date_from", dateFrom);
+    if (dateTo)       params.append("date_to", dateTo);
     params.append("sort_order", sortOrder);
     params.append("limit", "100");
-    const res = await apiFetch(`/api/audit-logs/?${params.toString()}`);
+    const res = await apiFetch(`/api/audit-logs/me?${params.toString()}`);
     const data = await res.json();
     setLogs(Array.isArray(data) ? data : []);
     setLoading(false);
@@ -54,7 +52,7 @@ export default function HistoryPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold">操作履歴</h1>
-          <p className="text-sm text-gray-400 mt-0.5">担当拠点とマスタに関する操作履歴</p>
+          <p className="text-sm text-gray-400 mt-0.5">自身の操作履歴</p>
         </div>
         <button
           onClick={() => setSortOrder((s) => s === "desc" ? "asc" : "desc")}
@@ -65,12 +63,6 @@ export default function HistoryPage() {
       </div>
 
       <div className="flex flex-wrap gap-3 mb-4">
-        <input
-          value={filterUsername}
-          onChange={(e) => setFilterUsername(e.target.value)}
-          placeholder="ユーザー名で絞り込み..."
-          className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500 w-44"
-        />
         <select
           value={filterAction}
           onChange={(e) => setFilterAction(e.target.value)}

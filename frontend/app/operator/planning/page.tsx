@@ -47,10 +47,13 @@ export default function PlanningPage() {
   useEffect(() => {
     Promise.all([apiFetch("/api/orders/"), apiFetch("/api/deliveries/")])
       .then(async ([ordRes, delRes]) => {
-        setOrders(await ordRes.json());
-        setDeliveries(await delRes.json());
+        const ordData = await ordRes.json();
+        const delData = await delRes.json();
+        setOrders(Array.isArray(ordData) ? ordData : []);
+        setDeliveries(Array.isArray(delData) ? delData : []);
         setLoading(false);
-      });
+      })
+      .catch(() => setLoading(false));
   }, []);
 
   const cols = getWeekCols(weeks);

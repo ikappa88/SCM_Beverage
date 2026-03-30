@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import MasterTable from "@/components/admin/MasterTable";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import HistoryPanel from "@/components/admin/HistoryPanel";
 import { apiFetch } from "@/lib/auth";
 interface Loc { id: number; code: string; name: string; }
 interface Route { id: number; code: string; origin_id: number; destination_id: number; origin: Loc; destination: Loc; lead_time_days: number; cost_per_unit: number | null; is_active: boolean; }
@@ -15,10 +16,12 @@ export default function RoutesPage() {
   const [editTarget, setEditTarget] = useState<Route | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [confirm, setConfirm] = useState<{ target: Route } | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<Route | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const fetchData = async () => {
     const [rr, lr] = await Promise.all([apiFetch("/api/routes/"), apiFetch("/api/locations/")]);
+    if (!rr.ok || !lr.ok) return;
     setRoutes(await rr.json());
     setLocations(await lr.json());
     setLoading(false);
@@ -55,7 +58,7 @@ export default function RoutesPage() {
         <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">+ 新規登録</button>
       </div>
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        {loading ? <p className="text-gray-400 text-sm">読み込み中...</p> : <MasterTable columns={columns} data={routes} onEdit={openEdit} onDeactivate={(r) => setConfirm({ target: r })} />}
+        {loading ? <p className="text-gray-400 text-sm">読み込み中...</p> : <MasterTable columns={columns} data={routes} onEdit={openEdit} onDeactivate={(r) => setConfirm({ target: r })} onHistory={(r) => setHistoryTarget(r)} />}
       </div>
       {showForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -77,6 +80,14 @@ export default function RoutesPage() {
             </div>
           </div>
         </div>
+      )}
+      {historyTarget && (
+        <HistoryPanel
+          resource="route"
+          resourceId={historyTarget.id}
+          title={`ルート ${historyTarget.code}（${historyTarget.origin?.name} → ${historyTarget.destination?.name}）`}
+          onClose={() => setHistoryTarget(null)}
+        />
       )}
       {confirm && <ConfirmDialog title="ルートを無効化しますか？" message={"「" + confirm.target.code + "」を無効化します。"} confirmLabel="無効化する" danger onConfirm={() => handleDeactivate(confirm.target)} onCancel={() => setConfirm(null)} />}
     </AdminLayout>

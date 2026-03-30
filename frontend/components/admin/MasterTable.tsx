@@ -11,10 +11,11 @@ interface Props<T> {
   data: T[];
   onEdit?: (row: T) => void;
   onDeactivate?: (row: T) => void;
+  onHistory?: (row: T) => void;
 }
 
 export default function MasterTable<T extends { id: number; is_active: boolean }>({
-  columns, data, onEdit, onDeactivate,
+  columns, data, onEdit, onDeactivate, onHistory,
 }: Props<T>) {
   return (
     <div className="overflow-x-auto">
@@ -26,7 +27,7 @@ export default function MasterTable<T extends { id: number; is_active: boolean }
                 {col.label}
               </th>
             ))}
-            {(onEdit || onDeactivate) && (
+            {(onEdit || onDeactivate || onHistory) && (
               <th className="text-left py-2 px-3 text-xs text-gray-400 font-medium">操作</th>
             )}
           </tr>
@@ -41,7 +42,7 @@ export default function MasterTable<T extends { id: number; is_active: boolean }
                     : String((row as Record<string, unknown>)[String(col.key)] ?? "-")}
                 </td>
               ))}
-              {(onEdit || onDeactivate) && (
+              {(onEdit || onDeactivate || onHistory) && (
                 <td className="py-2.5 px-3">
                   <div className="flex gap-2">
                     {onEdit && row.is_active && (
@@ -62,6 +63,14 @@ export default function MasterTable<T extends { id: number; is_active: boolean }
                     )}
                     {!row.is_active && (
                       <span className="text-xs text-gray-600">無効</span>
+                    )}
+                    {onHistory && (
+                      <button
+                        onClick={() => onHistory(row)}
+                        className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                      >
+                        履歴
+                      </button>
                     )}
                   </div>
                 </td>

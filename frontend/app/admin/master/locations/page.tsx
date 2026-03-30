@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import MasterTable from "@/components/admin/MasterTable";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import HistoryPanel from "@/components/admin/HistoryPanel";
 import { apiFetch } from "@/lib/auth";
 
 interface Location {
@@ -32,13 +33,14 @@ export default function LocationsPage() {
   const [editTarget, setEditTarget] = useState<Location | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [confirm, setConfirm] = useState<{ target: Location } | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<Location | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const fetchLocations = async () => {
     const res = await apiFetch("/api/locations/");
-    const data = await res.json();
-    setLocations(data);
+    if (!res.ok) return;
+    setLocations(await res.json());
     setLoading(false);
   };
 
@@ -126,6 +128,7 @@ export default function LocationsPage() {
             data={locations}
             onEdit={openEdit}
             onDeactivate={(loc) => setConfirm({ target: loc })}
+            onHistory={(loc) => setHistoryTarget(loc)}
           />
         )}
       </div>
@@ -203,6 +206,16 @@ export default function LocationsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 変更履歴パネル */}
+      {historyTarget && (
+        <HistoryPanel
+          resource="location"
+          resourceId={historyTarget.id}
+          title={`${historyTarget.name}（${historyTarget.code}）`}
+          onClose={() => setHistoryTarget(null)}
+        />
       )}
 
       {/* 無効化確認ダイアログ */}

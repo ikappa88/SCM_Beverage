@@ -21,6 +21,9 @@ services:
     container_name: scm_beverage_backend
     env_file:
       - ./backend/.env
+    environment:
+      # Docker内ではDBサービス名で接続 (backend/.envのlocalhostを上書き)
+      DATABASE_URL: postgresql://scm_user:${POSTGRES_PASSWORD}@db:5432/scm_beverage
     ports:
       - "8000:8000"
     volumes:
@@ -32,39 +35,3 @@ services:
 
 volumes:
   postgres_data:
-```
-
-### `docker-compose.example.env` を新規作成
-**パス：** `C:\Users\je_is\python_notebook\Git_Folder\SCM_Beverage\docker-compose.example.env`
-```
-# docker-compose用環境変数サンプル
-# 本番環境では .env にコピーして適切な値を設定してください
-POSTGRES_USER=scm_user
-POSTGRES_PASSWORD=your_secure_password_here
-POSTGRES_DB=scm_beverage
-```
-
-### `.gitignore` に追記
-末尾に以下を追加してください：
-```
-# 本番環境変数
-docker-compose.env
-.env.production
-```
-
----
-
-## Fix 4：APIベースURLの環境変数化
-
-### `frontend/.env.local` を新規作成
-**パス：** `C:\Users\je_is\python_notebook\Git_Folder\SCM_Beverage\frontend\.env.local`
-```
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-### `frontend/.env.example` を新規作成
-**パス：** `C:\Users\je_is\python_notebook\Git_Folder\SCM_Beverage\frontend\.env.example`
-```
-# APIのベースURL
-# 本番環境では適切なURLに変更してください
-NEXT_PUBLIC_API_URL=http://localhost:8000

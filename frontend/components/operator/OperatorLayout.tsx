@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { getAuthUser, logout } from "@/lib/auth";
 import Link from "next/link";
+import NotificationBell from "@/components/common/NotificationBell";
 
 const NAV_ITEMS = [
   { label: "ダッシュボード",   href: "/operator/dashboard", icon: "📊" },
@@ -48,12 +49,15 @@ export default function OperatorLayout({ children }: { children: React.ReactNode
     <div className="min-h-screen bg-gray-950 text-white flex">
       <aside className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col fixed h-full">
         <div className="p-4 border-b border-gray-800">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🥤</span>
-            <div>
-              <div className="text-sm font-semibold">SCM Beverage</div>
-              <div className="text-xs bg-blue-900 text-blue-300 px-1.5 py-0.5 rounded mt-0.5 inline-block">実務者</div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🥤</span>
+              <div>
+                <div className="text-sm font-semibold">SCM Beverage</div>
+                <div className="text-xs bg-blue-900 text-blue-300 px-1.5 py-0.5 rounded mt-0.5 inline-block">実務者</div>
+              </div>
             </div>
+            <NotificationBell alertsHref="/operator/alerts" />
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-1">{navItems}</nav>

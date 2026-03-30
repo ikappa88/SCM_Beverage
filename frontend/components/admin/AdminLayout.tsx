@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { getAuthUser, logout } from "@/lib/auth";
+import Link from "next/link";
+import NotificationBell from "@/components/common/NotificationBell";
 
 const NAV_ITEMS = [
     { label: "ダッシュボード", href: "/admin/dashboard", icon: "📊" },
@@ -10,6 +12,9 @@ const NAV_ITEMS = [
     { label: "商品マスタ", href: "/admin/master/products", icon: "🥤" },
     { label: "ルートマスタ", href: "/admin/master/routes", icon: "🚚" },
     { label: "ユーザー管理", href: "/admin/users", icon: "👤" },
+    { label: "安全在庫設定", href: "/admin/safety-stock", icon: "🛡️" },
+    { label: "シナリオ管理", href: "/admin/scenarios", icon: "🔬" },
+    { label: "テンプレート管理", href: "/admin/templates", icon: "📄" },
     { label: "監査ログ", href: "/admin/audit", icon: "📋" },
     { label: "KPI閾値設定", href: "/admin/settings", icon: "⚙️" },
   ];
@@ -30,13 +35,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const navItems = NAV_ITEMS.map((item) => {
     const isActive = pathname === item.href;
-    const baseClass = "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ";
-    const activeClass = isActive ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white hover:bg-gray-800";
+    const cls = "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors " +
+      (isActive ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white hover:bg-gray-800");
     return (
-      <a key={item.href} href={item.href} className={baseClass + activeClass}>
+      <Link key={item.href} href={item.href} className={cls}>
         <span className="text-base">{item.icon}</span>
         {item.label}
-      </a>
+      </Link>
     );
   });
 
@@ -44,12 +49,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="min-h-screen bg-gray-950 text-white flex">
       <aside className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col fixed h-full">
         <div className="p-4 border-b border-gray-800">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🥤</span>
-            <div>
-              <div className="text-sm font-semibold">SCM Beverage</div>
-              <div className="text-xs bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded mt-0.5 inline-block">管理者</div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🥤</span>
+              <div>
+                <div className="text-sm font-semibold">SCM Beverage</div>
+                <div className="text-xs bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded mt-0.5 inline-block">管理者</div>
+              </div>
             </div>
+            <NotificationBell alertsHref="/admin/alerts" />
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-1">{navItems}</nav>

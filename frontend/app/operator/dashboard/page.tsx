@@ -39,8 +39,10 @@ export default function OperatorDashboard() {
         apiFetch("/api/inventory/alerts"),
         apiFetch("/api/inventory/"),
       ]);
-      setAlerts(await alertRes.json());
-      setInventories(await invRes.json());
+      const alertData = await alertRes.json();
+      const invData = await invRes.json();
+      setAlerts(Array.isArray(alertData) ? alertData : []);
+      setInventories(Array.isArray(invData) ? invData : []);
       setLoading(false);
     };
     fetchData();
