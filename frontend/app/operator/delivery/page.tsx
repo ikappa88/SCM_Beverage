@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import OperatorLayout from "@/components/operator/OperatorLayout";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { apiFetch } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
 
 interface Location { id: number; name: string }
 interface Product  { id: number; name: string }
@@ -41,7 +42,6 @@ export default function DeliveryPage() {
   // ステータス更新モーダル
   const [updateTarget, setUpdateTarget] = useState<{ record: DeliveryRecord; next: string } | null>(null);
   const [delayReason, setDelayReason] = useState("");
-  const [updateInventory, setUpdateInventory] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fetchData = async () => {
@@ -60,7 +60,6 @@ export default function DeliveryPage() {
   const openUpdate = (record: DeliveryRecord, next: string) => {
     setUpdateTarget({ record, next });
     setDelayReason("");
-    setUpdateInventory(false);
     setError("");
   };
 
@@ -75,11 +74,8 @@ export default function DeliveryPage() {
       if (updateTarget.next === "arrived")    body.actual_arrival_date = today;
       if (updateTarget.next === "delayed")    body.delay_reason = delayReason;
 
-      const params = updateTarget.next === "arrived" && updateInventory
-        ? "?update_inventory=true" : "";
-
       const res = await apiFetch(
-        `/api/deliveries/${updateTarget.record.id}/status${params}`,
+        `/api/deliveries/${updateTarget.record.id}/status`,
         { method: "PATCH", body: JSON.stringify(body) }
       );
       if (!res.ok) {
@@ -96,9 +92,27 @@ export default function DeliveryPage() {
 
   return (
     <OperatorLayout>
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">配送管理</h1>
-        <p className="text-sm text-gray-400 mt-0.5">担当拠点の配送状況と進捗管理</p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-semibold">配送管理</h1>
+          <p className="text-sm text-gray-400 mt-0.5">担当拠点の配送状況と進捗管理</p>
+        </div>
+        <button
+          onClick={() => { const d = new Date().toISOString().slice(0,10); downloadCsv(`delivery_${d}.csv`, records, [
+            { label: "配送コード",     value: (r: DeliveryRecord) => r.delivery_code },
+            { label: "出発拠点",       value: (r: DeliveryRecord) => r.from_location.name },
+            { label: "到着拠点",       value: (r: DeliveryRecord) => r.to_location.name },
+            { label: "商品",           value: (r: DeliveryRecord) => r.product.name },
+            { label: "数量",           value: (r: DeliveryRecord) => r.quantity },
+            { label: "ステータス",     value: (r: DeliveryRecord) => r.status },
+            { label: "出発予定日",     value: (r: DeliveryRecord) => r.scheduled_departure_date },
+            { label: "到着予定日",     value: (r: DeliveryRecord) => r.expected_arrival_date },
+            { label: "実際到着日",     value: (r: DeliveryRecord) => r.actual_arrival_date ?? "" },
+          ]); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors"
+        >
+          ⬇ CSV
+        </button>
       </div>
 
       {error && !updateTarget && (
@@ -211,15 +225,10 @@ export default function DeliveryPage() {
             )}
 
             {updateTarget.next === "arrived" && (
-              <label className="flex items-center gap-2 mb-4 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={updateInventory}
-                  onChange={(e) => setUpdateInventory(e.target.checked)}
-                  className="accent-teal-500"
-                />
-                <span className="text-sm text-gray-300">在庫に自動反映する（到着先拠点の在庫に加算）</span>
-              </label>
+              <div className="flex items-start gap-2 mb-4 bg-teal-950 border border-teal-800 rounded-lg px-3 py-2">
+                <span className="text-teal-400 mt-0.5">ℹ</span>
+                <span className="text-sm text-teal-300">到着確認時に、到着先拠点の在庫が自動加算されます</span>
+              </div>
             )}
 
             {error && (

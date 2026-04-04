@@ -17,6 +17,7 @@ from app.schemas.delivery_record import (
 )
 from app.services.audit import record
 from app.services.auth import get_current_user
+from app.services.alert_service import evaluate_inventory_alert
 from app.api.inventory import check_location_access, get_allowed_location_ids
 
 router = APIRouter(prefix="/api/deliveries", tags=["配送管理"])
@@ -164,11 +165,10 @@ def create_delivery(
 def update_delivery_status(
     delivery_id: int,
     payload: DeliveryStatusUpdate,
-    update_inventory: bool = Query(False, description="ARRIVED時に在庫を自動加算するか"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """配送ステータス更新"""
+    """配送ステータス更新。ARRIVED時は到着先拠点の在庫を自動加算する"""
     delivery = _load_delivery(db, delivery_id)
 
     allowed = get_allowed_location_ids(current_user)
@@ -186,9 +186,10 @@ def update_delivery_status(
     if payload.delay_reason:
         delivery.delay_reason = payload.delay_reason
 
-    inventory_result = None
-    # ARRIVED かつ update_inventory=True の場合、到着先拠点の在庫を加算
-    if payload.status == DeliveryStatus.ARRIVED and update_inventory:
+    # ARRIVED になった場合、到着先拠点の在庫を自動加算してアラートを再評価する
+    inv_updated = False
+    inv_id_for_log = None
+    if payload.status == DeliveryStatus.ARRIVED:
         inv = (
             db.query(Inventory)
             .filter(
@@ -199,20 +200,13 @@ def update_delivery_status(
         )
         if inv:
             inv.quantity += delivery.quantity
-            inventory_result = {"updated": True, "new_quantity": inv.quantity}
-        else:
-            inventory_result = {
-                "updated": False,
-                "reason": "inventory record not found",
-            }
+            evaluate_inventory_alert(db, inv)
+            inv_updated = True
+            inv_id_for_log = inv.id
 
     db.commit()
     db.refresh(delivery)
     delivery = _load_delivery(db, delivery_id)
-
-    detail_msg = f"配送ステータス更新: {payload.status.value}"
-    if inventory_result:
-        detail_msg += f" / 在庫反映: {inventory_result}"
 
     record(
         db,
@@ -220,8 +214,19 @@ def update_delivery_status(
         action=AuditAction.UPDATE,
         resource="delivery",
         resource_id=str(delivery_id),
-        detail=detail_msg,
+        detail=f"配送ステータス更新: {payload.status.value}",
         user_id=current_user.id,
         location_id=delivery.from_location_id,
     )
+    if inv_updated and inv_id_for_log is not None:
+        record(
+            db,
+            username=current_user.username,
+            action=AuditAction.UPDATE,
+            resource="inventory",
+            resource_id=str(inv_id_for_log),
+            detail=f"配送到着により在庫自動加算: +{delivery.quantity} (配送:{delivery.delivery_code})",
+            user_id=current_user.id,
+            location_id=delivery.to_location_id,
+        )
     return delivery

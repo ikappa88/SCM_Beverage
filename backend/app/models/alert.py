@@ -12,13 +12,16 @@ class AlertType(str, enum.Enum):
     STOCKOUT = "stockout"
     LOW_STOCK = "low_stock"
     OVERSTOCK = "overstock"
+    EXPIRY_EXPIRED = "expiry_expired"
+    EXPIRY_NEAR = "expiry_near"
     DELAY = "delay"
     CUSTOM = "custom"
 
 
 class AlertSeverity(str, enum.Enum):
-    WARNING = "warning"
-    DANGER = "danger"
+    INFO = "info"       # 注意（過剰在庫など）
+    WARNING = "warning" # 警告（安全在庫割れ・賞味期限間近）
+    DANGER = "danger"   # 緊急（在庫切れ・賞味期限切れ）
 
 
 class AlertStatus(str, enum.Enum):
@@ -62,6 +65,12 @@ class Alert(Base, TimestampMixin):
     )
     auto_generated: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, comment="システム自動生成フラグ"
+    )
+    snoozed_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="スヌーズ解除日時"
+    )
+    snooze_reason: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="スヌーズ理由"
     )
 
     location = relationship("Location", foreign_keys=[location_id])

@@ -6,6 +6,7 @@ import MasterTable from "@/components/admin/MasterTable";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import HistoryPanel from "@/components/admin/HistoryPanel";
 import { apiFetch } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
 
 interface Location {
   id: number;
@@ -21,6 +22,16 @@ interface Location {
 const TYPE_LABELS: Record<string, string> = {
   factory: "工場", dc: "広域DC", tc: "地域TC", retail: "小売",
 };
+
+const CSV_COLUMNS = [
+  { label: "拠点コード",     value: (r: Location) => r.code },
+  { label: "拠点名",         value: (r: Location) => r.name },
+  { label: "種別",           value: (r: Location) => TYPE_LABELS[r.location_type] ?? r.location_type },
+  { label: "エリア",         value: (r: Location) => r.area ?? "" },
+  { label: "所在地",         value: (r: Location) => r.address ?? "" },
+  { label: "キャパシティ",   value: (r: Location) => r.capacity ?? "" },
+  { label: "状態",           value: (r: Location) => r.is_active ? "有効" : "無効" },
+];
 
 const EMPTY_FORM = {
   code: "", name: "", location_type: "tc", area: "", address: "", capacity: "",
@@ -114,9 +125,17 @@ export default function LocationsPage() {
           <h1 className="text-xl font-semibold">拠点マスタ</h1>
           <p className="text-sm text-gray-400 mt-0.5">工場・DC・TC・小売拠点の管理</p>
         </div>
-        <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-          + 新規登録
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { const d = new Date().toISOString().slice(0,10); downloadCsv(`locations_${d}.csv`, locations, CSV_COLUMNS); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors"
+          >
+            ⬇ CSV
+          </button>
+          <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+            + 新規登録
+          </button>
+        </div>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">

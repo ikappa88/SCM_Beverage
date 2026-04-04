@@ -6,6 +6,9 @@ import MasterTable from "@/components/admin/MasterTable";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import HistoryPanel from "@/components/admin/HistoryPanel";
 import { apiFetch } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
+import CsvUploadModal from "@/components/common/CsvUploadModal";
+import Toast from "@/components/common/Toast";
 
 interface Product {
   id: number;
@@ -17,6 +20,15 @@ interface Product {
   weight_kg: number | null;
   is_active: boolean;
 }
+
+const CSV_COLUMNS = [
+  { label: "code",          value: (r: Product) => r.code },
+  { label: "name",          value: (r: Product) => r.name },
+  { label: "category",      value: (r: Product) => r.category },
+  { label: "unit_size",     value: (r: Product) => r.unit_size ?? "" },
+  { label: "min_order_qty", value: (r: Product) => r.min_order_qty },
+  { label: "weight_kg",     value: (r: Product) => r.weight_kg ?? "" },
+];
 
 const EMPTY_FORM = {
   code: "", name: "", category: "", unit_size: "", min_order_qty: "1", weight_kg: "",
@@ -32,6 +44,8 @@ export default function ProductsPage() {
   const [historyTarget, setHistoryTarget] = useState<Product | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   const fetchProducts = async () => {
     const res = await apiFetch("/api/products/");
@@ -110,9 +124,23 @@ export default function ProductsPage() {
           <h1 className="text-xl font-semibold">商品マスタ</h1>
           <p className="text-sm text-gray-400 mt-0.5">取り扱い商品の管理</p>
         </div>
-        <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-          + 新規登録
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowUpload(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-teal-700 hover:bg-teal-600 rounded-lg transition-colors"
+          >
+            ⬆ CSVアップロード
+          </button>
+          <button
+            onClick={() => { const d = new Date().toISOString().slice(0,10); downloadCsv(`products_${d}.csv`, products, CSV_COLUMNS); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors"
+          >
+            ⬇ CSV
+          </button>
+          <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+            + 新規登録
+          </button>
+        </div>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
@@ -192,6 +220,25 @@ export default function ProductsPage() {
           onCancel={() => setConfirm(null)}
         />
       )}
+      {showUpload && (
+        <CsvUploadModal
+          title="商品マスタCSVアップロード"
+          commitPath="/api/upload/products"
+          formatHint={
+            <div className="space-y-1">
+              <div className="font-mono text-gray-200">code,name,category[,unit_size,min_order_qty,weight_kg]</div>
+              <div className="text-gray-400 mt-1">・ code：商品コード（既存なら更新、新規なら登録）</div>
+              <div className="text-gray-400">・ name：商品名</div>
+              <div className="text-gray-400">・ category：カテゴリ</div>
+              <div className="text-gray-400">・ unit_size / min_order_qty / weight_kg：任意</div>
+            </div>
+          }
+          onSuccess={(msg) => { setToast({ msg, type: "success" }); fetchProducts(); }}
+          onClose={() => setShowUpload(false)}
+        />
+      )}
+
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </AdminLayout>
   );
 }

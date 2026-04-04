@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import { apiFetch } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
 
 interface User {
   id: number;
@@ -132,10 +133,26 @@ export default function UsersPage() {
           <h1 className="text-xl font-semibold">ユーザー管理</h1>
           <p className="text-sm text-gray-400 mt-0.5">アカウント・権限・担当範囲の管理</p>
         </div>
-        <button onClick={openCreate}
+        <div className="flex gap-2">
+          <button
+            onClick={() => { const d = new Date().toISOString().slice(0,10); downloadCsv(`users_${d}.csv`, users, [
+              { label: "ユーザー名", value: (r: User) => r.username },
+              { label: "氏名",       value: (r: User) => r.full_name },
+              { label: "メール",     value: (r: User) => r.email },
+              { label: "ロール",     value: (r: User) => r.role === "administrator" ? "管理者" : "実務者" },
+              { label: "状態",       value: (r: User) => r.is_active ? "有効" : "無効" },
+              { label: "担当拠点ID", value: (r: User) => r.assigned_location_ids ?? "" },
+              { label: "担当カテゴリ", value: (r: User) => r.assigned_category_ids ?? "" },
+            ]); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors"
+          >
+            ⬇ CSV
+          </button>
+          <button onClick={openCreate}
           className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
           + 新規作成
-        </button>
+          </button>
+        </div>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">

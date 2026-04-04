@@ -12,6 +12,11 @@ class AlertStatusUpdate(BaseModel):
     status: AlertStatus
 
 
+class AlertSnoozeUpdate(BaseModel):
+    snoozed_until: datetime
+    snooze_reason: Optional[str] = None
+
+
 class AlertResponse(BaseModel):
     id: int
     alert_type: AlertType
@@ -24,6 +29,8 @@ class AlertResponse(BaseModel):
     resolved_by: Optional[int]
     resolved_at: Optional[datetime]
     auto_generated: bool
+    snoozed_until: Optional[datetime] = None
+    snooze_reason: Optional[str] = None
     location: LocationResponse
     product: Optional[ProductResponse]
     created_at: datetime

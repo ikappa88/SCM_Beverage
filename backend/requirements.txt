@@ -11,3 +11,4 @@ pydantic-settings
 pandas
 openpyxl
 python-dotenv
+apscheduler

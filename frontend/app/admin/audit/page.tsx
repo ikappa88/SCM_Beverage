@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { apiFetch } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
 
 interface AuditLog {
   id: number; username: string; action: string;
@@ -56,12 +57,28 @@ export default function AuditPage() {
           <h1 className="text-xl font-semibold">監査ログ</h1>
           <p className="text-sm text-gray-400 mt-0.5">全ユーザーの操作履歴</p>
         </div>
-        <button
-          onClick={() => setSortOrder((s) => s === "desc" ? "asc" : "desc")}
-          className="px-3 py-1.5 text-sm text-gray-400 border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
-        >
-          {sortOrder === "desc" ? "▼ 新しい順" : "▲ 古い順"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { const d = new Date().toISOString().slice(0,10); downloadCsv(`audit_log_${d}.csv`, logs, [
+              { label: "日時",         value: (r: AuditLog) => new Date(r.created_at).toLocaleString("ja-JP") },
+              { label: "ユーザー名",   value: (r: AuditLog) => r.username },
+              { label: "アクション",   value: (r: AuditLog) => ACTION_LABELS[r.action]?.label ?? r.action },
+              { label: "リソース",     value: (r: AuditLog) => r.resource },
+              { label: "リソースID",   value: (r: AuditLog) => r.resource_id ?? "" },
+              { label: "詳細",         value: (r: AuditLog) => r.detail ?? "" },
+              { label: "IPアドレス",   value: (r: AuditLog) => r.ip_address ?? "" },
+            ]); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors"
+          >
+            ⬇ CSV
+          </button>
+          <button
+            onClick={() => setSortOrder((s) => s === "desc" ? "asc" : "desc")}
+            className="px-3 py-1.5 text-sm text-gray-400 border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
+          >
+            {sortOrder === "desc" ? "▼ 新しい順" : "▲ 古い順"}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3 mb-4">

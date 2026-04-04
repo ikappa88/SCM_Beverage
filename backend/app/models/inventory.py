@@ -1,6 +1,8 @@
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from datetime import date
 from typing import Optional
+
+from sqlalchemy import Date, ForeignKey, Integer, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 
@@ -21,6 +23,9 @@ class Inventory(Base, TimestampMixin):
     )
     max_stock: Mapped[int] = mapped_column(
         Integer, nullable=False, default=9999, comment="最大在庫数"
+    )
+    expiry_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True, comment="賞味期限"
     )
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="備考")
 

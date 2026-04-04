@@ -248,6 +248,7 @@ async def commit_inventory_upload(
 
         from app.models.audit_log import AuditAction
         from app.services.audit import record
+        from app.services.alert_service import evaluate_inventory_alerts_bulk
 
         record(
             db,
@@ -257,6 +258,12 @@ async def commit_inventory_upload(
             detail=f"CSVアップロード: {updated}件更新",
             user_id=current_user.id,
         )
+
+        # 更新した在庫を対象にアラートを自動評価
+        updated_ids = [r["inventory_id"] for r in rows if r["inventory_id"] is not None]
+        evaluate_inventory_alerts_bulk(db, updated_ids)
+        db.commit()
+
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -264,3 +271,198 @@ async def commit_inventory_upload(
         )
 
     return {"message": f"{updated}件の在庫データを更新しました", "updated": updated}
+
+
+# ─────────────────────────────────────────────────────────────────
+# 商品マスタ CSV アップロード
+# ─────────────────────────────────────────────────────────────────
+
+@router.post("/products")
+async def upload_products(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """商品マスタCSVの一括登録・更新（コードが存在すれば更新、なければ新規作成）
+    CSVフォーマット: code, name, category[, unit_size, min_order_qty, weight_kg]
+    """
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="ファイルサイズが上限（10MB）を超えています")
+
+    try:
+        df = _read_csv_generic(content, {"code", "name", "category"})
+    except HTTPException:
+        raise
+
+    errors = []
+    upserted = 0
+    for idx, row in df.iterrows():
+        row_num = int(idx) + 2
+        code = str(row.get("code", "")).strip()
+        name = str(row.get("name", "")).strip()
+        category = str(row.get("category", "")).strip()
+
+        if not code or not name or not category:
+            errors.append({"row": row_num, "reason": "code・name・categoryは必須です"})
+            continue
+
+        product = db.query(Product).filter(Product.code == code).first()
+        if product:
+            product.name = name
+            product.category = category
+            if "unit_size" in df.columns:
+                product.unit_size = str(row["unit_size"]).strip() or None
+            if "min_order_qty" in df.columns:
+                try:
+                    product.min_order_qty = int(row["min_order_qty"])
+                except (ValueError, TypeError):
+                    pass
+            if "weight_kg" in df.columns:
+                try:
+                    product.weight_kg = float(row["weight_kg"])
+                except (ValueError, TypeError):
+                    product.weight_kg = None
+        else:
+            kwargs: dict = {"code": code, "name": name, "category": category}
+            if "unit_size" in df.columns:
+                kwargs["unit_size"] = str(row["unit_size"]).strip() or None
+            if "min_order_qty" in df.columns:
+                try:
+                    kwargs["min_order_qty"] = int(row["min_order_qty"])
+                except (ValueError, TypeError):
+                    pass
+            if "weight_kg" in df.columns:
+                try:
+                    kwargs["weight_kg"] = float(row["weight_kg"])
+                except (ValueError, TypeError):
+                    pass
+            db.add(Product(**kwargs))
+        upserted += 1
+
+    if errors:
+        db.rollback()
+        raise HTTPException(status_code=400, detail={"errors": errors})
+
+    db.commit()
+
+    from app.models.audit_log import AuditAction
+    from app.services.audit import record
+    record(db, username=current_user.username, action=AuditAction.UPLOAD,
+           resource="product", detail=f"商品マスタCSV: {upserted}件登録・更新",
+           user_id=current_user.id)
+
+    return {"message": f"{upserted}件の商品データを登録・更新しました", "updated": upserted}
+
+
+# ─────────────────────────────────────────────────────────────────
+# ルートマスタ CSV アップロード
+# ─────────────────────────────────────────────────────────────────
+
+@router.post("/routes")
+async def upload_routes(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """ルートマスタCSVの一括登録・更新（コードが存在すれば更新、なければ新規作成）
+    CSVフォーマット: code, origin_code, destination_code, lead_time_days[, cost_per_unit]
+    """
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="ファイルサイズが上限（10MB）を超えています")
+
+    try:
+        df = _read_csv_generic(content, {"code", "origin_code", "destination_code", "lead_time_days"})
+    except HTTPException:
+        raise
+
+    # 拠点コード→ID マップ（全件キャッシュ）
+    loc_map = {loc.code: loc.id for loc in db.query(Location).filter(Location.is_active == True).all()}
+
+    errors = []
+    upserted = 0
+    for idx, row in df.iterrows():
+        row_num = int(idx) + 2
+        code = str(row.get("code", "")).strip()
+        origin_code = str(row.get("origin_code", "")).strip()
+        dest_code = str(row.get("destination_code", "")).strip()
+
+        if not code or not origin_code or not dest_code:
+            errors.append({"row": row_num, "reason": "code・origin_code・destination_codeは必須です"})
+            continue
+
+        try:
+            lead_time = int(row["lead_time_days"])
+        except (ValueError, TypeError):
+            errors.append({"row": row_num, "reason": "lead_time_daysは整数で入力してください"})
+            continue
+
+        if origin_code not in loc_map:
+            errors.append({"row": row_num, "reason": f"出発拠点コード '{origin_code}' が見つかりません"})
+            continue
+        if dest_code not in loc_map:
+            errors.append({"row": row_num, "reason": f"到着拠点コード '{dest_code}' が見つかりません"})
+            continue
+
+        cost: Optional[float] = None
+        if "cost_per_unit" in df.columns:
+            try:
+                cost = float(row["cost_per_unit"])
+            except (ValueError, TypeError):
+                cost = None
+
+        from app.models.route import Route
+        route = db.query(Route).filter(Route.code == code).first()
+        if route:
+            route.origin_id = loc_map[origin_code]
+            route.destination_id = loc_map[dest_code]
+            route.lead_time_days = lead_time
+            if cost is not None:
+                route.cost_per_unit = cost
+        else:
+            db.add(Route(
+                code=code,
+                origin_id=loc_map[origin_code],
+                destination_id=loc_map[dest_code],
+                lead_time_days=lead_time,
+                cost_per_unit=cost,
+            ))
+        upserted += 1
+
+    if errors:
+        db.rollback()
+        raise HTTPException(status_code=400, detail={"errors": errors})
+
+    db.commit()
+
+    from app.models.audit_log import AuditAction
+    from app.services.audit import record
+    record(db, username=current_user.username, action=AuditAction.UPLOAD,
+           resource="route", detail=f"ルートマスタCSV: {upserted}件登録・更新",
+           user_id=current_user.id)
+
+    return {"message": f"{upserted}件のルートデータを登録・更新しました", "updated": upserted}
+
+
+def _read_csv_generic(content: bytes, required: set) -> "pd.DataFrame":
+    try:
+        df = pd.read_csv(io.BytesIO(content), dtype=str)
+    except Exception:
+        raise HTTPException(status_code=400, detail="CSVファイルの読み込みに失敗しました")
+    df.columns = df.columns.str.strip().str.lower()
+    missing = required - set(df.columns)
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"必須列が不足しています: {', '.join(sorted(missing))}",
+        )
+    if len(df) > MAX_ROWS:
+        raise HTTPException(status_code=400, detail=f"行数が上限（{MAX_ROWS}行）を超えています")
+    return df

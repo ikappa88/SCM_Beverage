@@ -1,14 +1,19 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 import io
 import pandas as pd
 
 from app.core.database import get_db
+from app.models.delivery_record import DeliveryRecord, DeliveryStatus
 from app.models.inventory import Inventory
+from app.models.order import Order, OrderStatus
+from app.models.route import Route
 from app.models.user import User, UserRole
 from app.schemas.inventory import (
     InventoryAlertResponse,
+    InventoryATPResponse,
     InventoryResponse,
     InventoryUpdate,
     SafetyStockUpdate,
@@ -66,13 +71,32 @@ def list_safety_stocks(
     )
 
 
+def _get_upstream_location_ids(db: Session, own_location_ids: list[int]) -> list[int]:
+    """ルートマスタからユーザー担当拠点への供給元拠点IDリストを返す（上流在庫可視化用）"""
+    if not own_location_ids:
+        return []
+    rows = (
+        db.query(Route.origin_id)
+        .filter(
+            Route.destination_id.in_(own_location_ids),
+            Route.is_active == True,
+        )
+        .distinct()
+        .all()
+    )
+    # 自拠点と重複する場合は除外
+    own_set = set(own_location_ids)
+    return [r.origin_id for r in rows if r.origin_id not in own_set]
+
+
 @router.get("/", response_model=list[InventoryResponse])
 def list_inventory(
     location_id: Optional[int] = None,
+    include_upstream: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """在庫一覧取得"""
+    """在庫一覧取得。include_upstream=true の場合、ルート上の補充元拠点の在庫も読み取り専用で返す"""
     query = db.query(Inventory).options(
         joinedload(Inventory.location),
         joinedload(Inventory.product),
@@ -84,9 +108,92 @@ def list_inventory(
 
     allowed = get_allowed_location_ids(current_user)
     if allowed is not None:
-        inventories = [inv for inv in inventories if inv.location_id in allowed]
+        own_ids = set(allowed)
+        upstream_ids: set[int] = set()
+        if include_upstream:
+            upstream_ids = set(_get_upstream_location_ids(db, list(own_ids)))
+
+        result = []
+        for inv in inventories:
+            if inv.location_id in own_ids:
+                result.append(inv)
+            elif inv.location_id in upstream_ids:
+                # 上流拠点は is_readonly フラグを付けて返す（モデルには存在しないので辞書経由）
+                inv.__dict__["is_readonly"] = True
+                result.append(inv)
+        return result
 
     return inventories
+
+
+@router.get("/atp", response_model=InventoryATPResponse)
+def get_atp(
+    location_id: int,
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    利用可能在庫（ATP: Available to Promise）を計算して返す。
+    補充元拠点の現在庫から、他拠点への確定発注引当済み数を差し引き、
+    入荷予定数を加算した「実際に発注可能な数量」を提示する。
+    """
+    inv = (
+        db.query(Inventory)
+        .options(joinedload(Inventory.location), joinedload(Inventory.product))
+        .filter(
+            Inventory.location_id == location_id,
+            Inventory.product_id == product_id,
+        )
+        .first()
+    )
+    if not inv:
+        raise HTTPException(status_code=404, detail="在庫データが見つかりません")
+
+    # 閲覧権限チェック（自拠点 or 上流拠点のみ）
+    allowed = get_allowed_location_ids(current_user)
+    if allowed is not None:
+        own_ids = set(allowed)
+        upstream_ids = set(_get_upstream_location_ids(db, list(own_ids)))
+        if location_id not in own_ids and location_id not in upstream_ids:
+            raise HTTPException(status_code=403, detail="この拠点の在庫を参照する権限がありません")
+
+    # 確定済み出荷引当数（confirmed / in_transit で未着の発注）
+    allocated = (
+        db.query(func.coalesce(func.sum(Order.quantity), 0))
+        .filter(
+            Order.from_location_id == location_id,
+            Order.product_id == product_id,
+            Order.status.in_([OrderStatus.CONFIRMED, OrderStatus.IN_TRANSIT]),
+        )
+        .scalar()
+    ) or 0
+
+    # 入荷予定数（scheduled / in_transit の配送）
+    inbound = (
+        db.query(func.coalesce(func.sum(DeliveryRecord.quantity), 0))
+        .filter(
+            DeliveryRecord.to_location_id == location_id,
+            DeliveryRecord.product_id == product_id,
+            DeliveryRecord.status.in_([DeliveryStatus.SCHEDULED, DeliveryStatus.IN_TRANSIT]),
+        )
+        .scalar()
+    ) or 0
+
+    current = inv.quantity
+    atp = current - int(allocated)
+
+    return InventoryATPResponse(
+        location_id=location_id,
+        product_id=product_id,
+        location_name=inv.location.name,
+        product_name=inv.product.name,
+        current=current,
+        allocated=int(allocated),
+        atp=atp,
+        inbound=int(inbound),
+        atp_with_inbound=atp + int(inbound),
+    )
 
 
 @router.get("/alerts", response_model=list[InventoryAlertResponse])
@@ -161,6 +268,7 @@ def update_inventory(
 
     from app.models.audit_log import AuditAction
     from app.services.audit import record
+    from app.services.alert_service import evaluate_inventory_alert
 
     record(
         db,
@@ -172,6 +280,11 @@ def update_inventory(
         user_id=current_user.id,
         location_id=inv.location_id,
     )
+
+    # 在庫更新後にアラートを自動評価
+    evaluate_inventory_alert(db, inv)
+    db.commit()
+
     return inv
 
 
@@ -199,6 +312,7 @@ def update_safety_stock(
 
     from app.models.audit_log import AuditAction
     from app.services.audit import record
+    from app.services.alert_service import evaluate_inventory_alert
 
     record(
         db,
@@ -210,6 +324,11 @@ def update_safety_stock(
         user_id=current_user.id,
         location_id=inv.location_id,
     )
+
+    # 安全在庫変更後にアラートを再評価（閾値が変わるためアラート状態が変化する可能性がある）
+    evaluate_inventory_alert(db, inv)
+    db.commit()
+
     return inv
 
 
@@ -251,6 +370,7 @@ async def bulk_update_safety_stocks(
 
     from app.models.audit_log import AuditAction
     from app.services.audit import record
+    from app.services.alert_service import evaluate_inventory_alerts_bulk
 
     record(
         db,
@@ -262,4 +382,10 @@ async def bulk_update_safety_stocks(
         user_id=current_user.id,
         location_id=None,
     )
+
+    # 安全在庫変更後に一括アラート再評価
+    updated_ids = [int(row["inventory_id"]) for _, row in df.iterrows()]
+    evaluate_inventory_alerts_bulk(db, updated_ids)
+    db.commit()
+
     return {"updated": updated}

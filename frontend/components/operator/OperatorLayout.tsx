@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { getAuthUser, logout } from "@/lib/auth";
+import { apiFetch, getAuthUser, logout } from "@/lib/auth";
 import Link from "next/link";
 import NotificationBell from "@/components/common/NotificationBell";
 
@@ -13,15 +13,19 @@ const NAV_ITEMS = [
   { label: "発注・補充指示",   href: "/operator/orders",    icon: "📋" },
   { label: "配送管理",         href: "/operator/delivery",  icon: "🚚" },
   { label: "計画ビュー",       href: "/operator/planning",  icon: "📅" },
-  { label: "データアップロード", href: "/operator/upload",  icon: "📤" },
+  { label: "商品マスタ",       href: "/operator/products",  icon: "🥤" },
+  { label: "ルートマスタ",     href: "/operator/routes",    icon: "🗺️" },
   { label: "操作履歴",         href: "/operator/history",   icon: "🕐" },
 ];
+
+const ALERT_POLL_MS = 5 * 60 * 1000;
 
 export default function OperatorLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [userName, setUserName] = useState("");
   const [locationIds, setLocationIds] = useState("");
+  const [alertBadge, setAlertBadge] = useState(0);
 
   useEffect(() => {
     const user = getAuthUser();
@@ -31,16 +35,37 @@ export default function OperatorLayout({ children }: { children: React.ReactNode
     setLocationIds(localStorage.getItem("assigned_location_ids") ?? "");
   }, [router]);
 
+  const fetchBadge = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/alerts/badge");
+      if (!res.ok) return;
+      const data = await res.json();
+      setAlertBadge(typeof data.count === "number" ? data.count : 0);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    fetchBadge();
+    const timer = setInterval(fetchBadge, ALERT_POLL_MS);
+    return () => clearInterval(timer);
+  }, [fetchBadge]);
+
   const handleLogout = () => { logout(); router.push("/login"); };
 
   const navItems = NAV_ITEMS.map((item) => {
     const isActive = pathname === item.href;
     const cls = "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors " +
       (isActive ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white hover:bg-gray-800");
+    const isAlerts = item.href === "/operator/alerts";
     return (
       <Link key={item.href} href={item.href} className={cls}>
         <span className="text-base">{item.icon}</span>
-        {item.label}
+        <span className="flex-1">{item.label}</span>
+        {isAlerts && alertBadge > 0 && (
+          <span className="min-w-[18px] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+            {alertBadge > 99 ? "99+" : alertBadge}
+          </span>
+        )}
       </Link>
     );
   });

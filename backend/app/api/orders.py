@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.models.audit_log import AuditAction
-from app.models.order import Order, OrderStatus
+from app.models.delivery_record import DeliveryRecord, DeliveryStatus
+from app.models.inventory import Inventory
+from app.models.order import Order, OrderStatus, OrderType
 from app.models.product import Product
 from app.models.route import Route
 from app.models.user import User, UserRole
@@ -16,6 +18,7 @@ from app.schemas.order import (
     OrderResponse,
     OrderStatusUpdate,
 )
+from app.services.alert_service import evaluate_inventory_alert
 from app.services.audit import record
 from app.services.auth import get_current_user
 from app.api.inventory import check_location_access, get_allowed_location_ids
@@ -58,8 +61,8 @@ def _load_order(db: Session, order_id: int) -> Order:
 
 def _validate_order(
     db: Session, payload: OrderCreate
-) -> tuple[list[str], Optional[float], Optional[int]]:
-    """発注のバリデーション。(errors, estimated_cost, lead_time_days) を返す"""
+) -> tuple[list[str], Optional[float], Optional[int], Optional[Route]]:
+    """発注のバリデーション。(errors, estimated_cost, lead_time_days, route) を返す"""
     errors: list[str] = []
     estimated_cost: Optional[float] = None
     lead_time_days: Optional[int] = None
@@ -88,7 +91,23 @@ def _validate_order(
         if route.cost_per_unit is not None:
             estimated_cost = float(route.cost_per_unit) * payload.quantity
 
-    return errors, estimated_cost, lead_time_days
+    # TRANSFER（拠点間移管）の場合、出荷元の在庫が十分かチェックする
+    if payload.order_type == OrderType.TRANSFER:
+        from_inv = (
+            db.query(Inventory)
+            .filter(
+                Inventory.location_id == payload.from_location_id,
+                Inventory.product_id == payload.product_id,
+            )
+            .first()
+        )
+        current_qty = from_inv.quantity if from_inv else 0
+        if current_qty < payload.quantity:
+            errors.append(
+                f"移管元拠点の在庫が不足しています（現在庫: {current_qty}、必要数: {payload.quantity}）"
+            )
+
+    return errors, estimated_cost, lead_time_days, route
 
 
 @router.get("/", response_model=list[OrderResponse])
@@ -148,7 +167,7 @@ def preview_order(
             status_code=403, detail="この拠点への発注権限がありません"
         )
 
-    errors, estimated_cost, lead_time_days = _validate_order(db, payload)
+    errors, estimated_cost, lead_time_days, _ = _validate_order(db, payload)
 
     # lead_time_days から hoped_delivery_date を計算
     expected_delivery_date = payload.expected_delivery_date
@@ -184,7 +203,7 @@ def create_order(
             status_code=403, detail="この拠点への発注権限がありません"
         )
 
-    errors, estimated_cost, lead_time_days = _validate_order(db, payload)
+    errors, estimated_cost, lead_time_days, route = _validate_order(db, payload)
     if errors:
         raise HTTPException(
             status_code=400, detail=f"バリデーションエラー: {'; '.join(errors)}"
@@ -219,19 +238,81 @@ def create_order(
     db.commit()
     db.refresh(order)
 
-    # joinedloadで再取得
+    # ── 発注確定後の副作用処理 ──────────────────────────────────────────────────
+
+    # 配送記録の自動生成（ルートが存在する場合）
+    dlv_code = None
+    if route is not None:
+        today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+        dlv_prefix = f"DLV-{today_str}-"
+        last_dlv = (
+            db.query(DeliveryRecord.delivery_code)
+            .filter(DeliveryRecord.delivery_code.like(f"{dlv_prefix}%"))
+            .order_by(DeliveryRecord.delivery_code.desc())
+            .first()
+        )
+        dlv_seq = (int(last_dlv[0][-3:]) + 1) if last_dlv else 1
+        dlv_code = f"{dlv_prefix}{dlv_seq:03d}"
+        db.add(DeliveryRecord(
+            delivery_code=dlv_code,
+            order_id=order.id,
+            route_id=route.id,
+            from_location_id=order.from_location_id,
+            to_location_id=order.to_location_id,
+            product_id=order.product_id,
+            quantity=order.quantity,
+            status=DeliveryStatus.SCHEDULED,
+            scheduled_departure_date=order.requested_date,
+            expected_arrival_date=order.expected_delivery_date or order.requested_date,
+            created_by=current_user.id,
+        ))
+
+    # TRANSFER発注の場合、出荷元の在庫を即時減算してアラートを再評価する
+    from_inv_id = None
+    if payload.order_type == OrderType.TRANSFER:
+        from_inv = (
+            db.query(Inventory)
+            .filter(
+                Inventory.location_id == order.from_location_id,
+                Inventory.product_id == order.product_id,
+            )
+            .first()
+        )
+        if from_inv:
+            from_inv.quantity -= order.quantity
+            evaluate_inventory_alert(db, from_inv)
+            from_inv_id = from_inv.id
+
+    db.commit()
+
+    # ── 監査ログ記録 ──────────────────────────────────────────────────────────
+
     order = _load_order(db, order.id)
 
+    detail_parts = [f"発注作成: {order_code} 商品ID={payload.product_id} 数量={payload.quantity}"]
+    if dlv_code:
+        detail_parts.append(f"配送記録自動生成: {dlv_code}")
     record(
         db,
         username=current_user.username,
         action=AuditAction.CREATE,
         resource="order",
         resource_id=str(order.id),
-        detail=f"発注作成: {order_code} 商品ID={payload.product_id} 数量={payload.quantity}",
+        detail=" / ".join(detail_parts),
         user_id=current_user.id,
         location_id=payload.to_location_id,
     )
+    if from_inv_id is not None:
+        record(
+            db,
+            username=current_user.username,
+            action=AuditAction.UPDATE,
+            resource="inventory",
+            resource_id=str(from_inv_id),
+            detail=f"移管発注により在庫自動減算: -{order.quantity} (発注:{order_code})",
+            user_id=current_user.id,
+            location_id=order.from_location_id,
+        )
     return order
 
 

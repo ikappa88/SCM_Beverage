@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import { apiFetch } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
+import CsvUploadModal from "@/components/common/CsvUploadModal";
+import Toast from "@/components/common/Toast";
 
 interface InventoryRecord {
   id: number;
@@ -24,6 +27,8 @@ export default function SafetyStockPage() {
   const [edits, setEdits] = useState<Record<number, Edit>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -96,13 +101,35 @@ export default function SafetyStockPage() {
           <h1 className="text-xl font-semibold">安全在庫設定</h1>
           <p className="text-sm text-gray-400 mt-0.5">拠点×商品ごとの安全在庫・最大在庫を設定します</p>
         </div>
-        <button
-          onClick={() => changedIds.length > 0 && setShowConfirm(true)}
-          disabled={changedIds.length === 0 || saving}
-          className="px-4 py-2 text-sm font-medium bg-teal-500 hover:bg-teal-400 text-gray-950 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {saving ? "保存中..." : `変更を保存${changedIds.length > 0 ? ` (${changedIds.length}件)` : ""}`}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowUpload(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-teal-700 hover:bg-teal-600 rounded-lg transition-colors"
+          >
+            ⬆ CSV一括更新
+          </button>
+          <button
+            onClick={() => { const d = new Date().toISOString().slice(0,10); downloadCsv(`safety_stock_${d}.csv`, records, [
+              { label: "inventory_id",  value: (r: InventoryRecord) => r.id },
+              { label: "safety_stock",  value: (r: InventoryRecord) => r.safety_stock },
+              { label: "max_stock",     value: (r: InventoryRecord) => r.max_stock },
+              { label: "location_name", value: (r: InventoryRecord) => r.location.name },
+              { label: "product_code",  value: (r: InventoryRecord) => r.product.code },
+              { label: "product_name",  value: (r: InventoryRecord) => r.product.name },
+              { label: "quantity",      value: (r: InventoryRecord) => r.quantity },
+            ]); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors"
+          >
+            ⬇ CSV
+          </button>
+          <button
+            onClick={() => changedIds.length > 0 && setShowConfirm(true)}
+            disabled={changedIds.length === 0 || saving}
+            className="px-4 py-2 text-sm font-medium bg-teal-500 hover:bg-teal-400 text-gray-950 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? "保存中..." : `変更を保存${changedIds.length > 0 ? ` (${changedIds.length}件)` : ""}`}
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -196,6 +223,25 @@ export default function SafetyStockPage() {
           onCancel={() => setShowConfirm(false)}
         />
       )}
+
+      {showUpload && (
+        <CsvUploadModal
+          title="安全在庫CSV一括更新"
+          commitPath="/api/inventory/safety-stocks/bulk"
+          formatHint={
+            <div className="space-y-1">
+              <div className="font-mono text-gray-200">inventory_id,safety_stock,max_stock</div>
+              <div className="text-gray-400 mt-1">・ inventory_id：在庫ID（CSVダウンロードで確認可）</div>
+              <div className="text-gray-400">・ safety_stock：安全在庫数（0以上の整数）</div>
+              <div className="text-gray-400">・ max_stock：最大在庫数（0以上の整数）</div>
+            </div>
+          }
+          onSuccess={(msg) => { setToast({ msg, type: "success" }); }}
+          onClose={() => setShowUpload(false)}
+        />
+      )}
+
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </AdminLayout>
   );
 }

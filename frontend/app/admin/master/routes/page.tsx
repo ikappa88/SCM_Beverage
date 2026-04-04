@@ -5,8 +5,18 @@ import MasterTable from "@/components/admin/MasterTable";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import HistoryPanel from "@/components/admin/HistoryPanel";
 import { apiFetch } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
+import CsvUploadModal from "@/components/common/CsvUploadModal";
+import Toast from "@/components/common/Toast";
 interface Loc { id: number; code: string; name: string; }
 interface Route { id: number; code: string; origin_id: number; destination_id: number; origin: Loc; destination: Loc; lead_time_days: number; cost_per_unit: number | null; is_active: boolean; }
+const CSV_COLUMNS = [
+  { label: "code",             value: (r: Route) => r.code },
+  { label: "origin_code",      value: (r: Route) => r.origin?.code ?? "" },
+  { label: "destination_code", value: (r: Route) => r.destination?.code ?? "" },
+  { label: "lead_time_days",   value: (r: Route) => r.lead_time_days },
+  { label: "cost_per_unit",    value: (r: Route) => r.cost_per_unit ?? "" },
+];
 const EMPTY = { code: "", origin_id: "", destination_id: "", lead_time_days: "1", cost_per_unit: "" };
 export default function RoutesPage() {
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -19,6 +29,8 @@ export default function RoutesPage() {
   const [historyTarget, setHistoryTarget] = useState<Route | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const fetchData = async () => {
     const [rr, lr] = await Promise.all([apiFetch("/api/routes/"), apiFetch("/api/locations/")]);
     if (!rr.ok || !lr.ok) return;
@@ -55,7 +67,11 @@ export default function RoutesPage() {
     <AdminLayout>
       <div className="flex items-center justify-between mb-6">
         <div><h1 className="text-xl font-semibold">ルートマスタ</h1><p className="text-sm text-gray-400 mt-0.5">拠点間の輸送ルート管理</p></div>
-        <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">+ 新規登録</button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowUpload(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-teal-700 hover:bg-teal-600 rounded-lg transition-colors">⬆ CSVアップロード</button>
+          <button onClick={() => { const d = new Date().toISOString().slice(0,10); downloadCsv(`routes_${d}.csv`, routes, CSV_COLUMNS); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors">⬇ CSV</button>
+          <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">+ 新規登録</button>
+        </div>
       </div>
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         {loading ? <p className="text-gray-400 text-sm">読み込み中...</p> : <MasterTable columns={columns} data={routes} onEdit={openEdit} onDeactivate={(r) => setConfirm({ target: r })} onHistory={(r) => setHistoryTarget(r)} />}
@@ -90,6 +106,27 @@ export default function RoutesPage() {
         />
       )}
       {confirm && <ConfirmDialog title="ルートを無効化しますか？" message={"「" + confirm.target.code + "」を無効化します。"} confirmLabel="無効化する" danger onConfirm={() => handleDeactivate(confirm.target)} onCancel={() => setConfirm(null)} />}
+
+      {showUpload && (
+        <CsvUploadModal
+          title="ルートマスタCSVアップロード"
+          commitPath="/api/upload/routes"
+          formatHint={
+            <div className="space-y-1">
+              <div className="font-mono text-gray-200">code,origin_code,destination_code,lead_time_days[,cost_per_unit]</div>
+              <div className="text-gray-400 mt-1">・ code：ルートコード（既存なら更新、新規なら登録）</div>
+              <div className="text-gray-400">・ origin_code：出発拠点コード（例：TC-01）</div>
+              <div className="text-gray-400">・ destination_code：到着拠点コード（例：TC-02）</div>
+              <div className="text-gray-400">・ lead_time_days：リードタイム（整数）</div>
+              <div className="text-gray-400">・ cost_per_unit：コスト原単位（任意）</div>
+            </div>
+          }
+          onSuccess={(msg) => { setToast({ msg, type: "success" }); fetchData(); }}
+          onClose={() => setShowUpload(false)}
+        />
+      )}
+
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </AdminLayout>
   );
 }

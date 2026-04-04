@@ -5,6 +5,7 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import Toast from "@/components/common/Toast";
 import { apiFetch } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
 
 interface Scenario {
   id: number;
@@ -112,9 +113,21 @@ export default function ScenariosPage() {
           <h1 className="text-xl font-semibold">シナリオ管理</h1>
           <p className="text-sm text-gray-400 mt-0.5">需要変動・コスト変動シナリオの登録・管理</p>
         </div>
-        <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-          + 新規登録
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => { const d = new Date().toISOString().slice(0,10); downloadCsv(`scenarios_${d}.csv`, scenarios, [
+            { label: "コード",       value: (r: Scenario) => r.code },
+            { label: "名称",         value: (r: Scenario) => r.name },
+            { label: "需要係数",     value: (r: Scenario) => r.demand_factor },
+            { label: "コスト係数",   value: (r: Scenario) => r.cost_factor },
+            { label: "状態",         value: (r: Scenario) => r.is_active ? "有効" : "無効" },
+            { label: "説明",         value: (r: Scenario) => r.description ?? "" },
+          ]); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors">
+            ⬇ CSV
+          </button>
+          <button onClick={openCreate} className="bg-teal-500 hover:bg-teal-400 text-gray-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+            + 新規登録
+          </button>
+        </div>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
