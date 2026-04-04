@@ -35,6 +35,7 @@ export default function LoginPage() {
       localStorage.setItem("role", data.role);
       localStorage.setItem("full_name", data.full_name);
       localStorage.setItem("user_id", String(data.user_id));
+      localStorage.setItem("assigned_location_ids", data.assigned_location_ids ?? "");
 
       // ロールに応じてリダイレクト
       if (data.role === "administrator") {

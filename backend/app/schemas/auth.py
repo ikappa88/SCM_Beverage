@@ -12,6 +12,7 @@ class TokenResponse(BaseModel):
     role: str
     full_name: str
     user_id: int
+    assigned_location_ids: str | None = None
 
 
 class TokenData(BaseModel):

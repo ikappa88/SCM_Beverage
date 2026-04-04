@@ -5,6 +5,7 @@ export interface AuthUser {
   full_name: string;
   role: UserRole;
   access_token: string;
+  assigned_location_ids: string;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -16,7 +17,13 @@ export function getAuthUser(): AuthUser | null {
   const full_name = localStorage.getItem("full_name");
   const user_id = localStorage.getItem("user_id");
   if (!token || !role || !full_name || !user_id) return null;
-  return { access_token: token, role, full_name, user_id: Number(user_id) };
+  return {
+    access_token: token,
+    role,
+    full_name,
+    user_id: Number(user_id),
+    assigned_location_ids: localStorage.getItem("assigned_location_ids") ?? "",
+  };
 }
 
 export function isAuthenticated(): boolean {
@@ -32,6 +39,7 @@ export function logout() {
   localStorage.removeItem("role");
   localStorage.removeItem("full_name");
   localStorage.removeItem("user_id");
+  localStorage.removeItem("assigned_location_ids");
 }
 
 export async function apiFetch(
