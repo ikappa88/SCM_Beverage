@@ -67,3 +67,38 @@ class SimulationParameterUpdate(BaseModel):
     key: str
     value: Any
     description: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Movement Plan
+# ---------------------------------------------------------------------------
+
+class MovementPlanDayResponse(BaseModel):
+    date: str
+    inbound: int
+    demand_estimate: int
+    projected_stock: int
+    is_stockout: bool
+
+
+class MovementPlanResponse(BaseModel):
+    tc_location_id: int
+    product_id: int
+    current_stock: int
+    safety_stock: int
+    atp: int
+    stockout_date: Optional[str]
+    days: list[MovementPlanDayResponse]
+    wide_dc_quantity: int
+
+
+# ---------------------------------------------------------------------------
+# Wide DC Status
+# ---------------------------------------------------------------------------
+
+class WideDcStatusItem(BaseModel):
+    dc_location_id: int
+    product_id: int
+    quantity: int
+    safety_stock: int
+    level: str  # "sufficient" | "warning" | "stockout"
