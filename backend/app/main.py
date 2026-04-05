@@ -20,6 +20,7 @@ from app.api import (
     deliveries,
     scenarios,
     templates,
+    simulation,
 )
 
 @asynccontextmanager
@@ -63,6 +64,7 @@ app.include_router(orders.router)
 app.include_router(deliveries.router)
 app.include_router(scenarios.router)
 app.include_router(templates.router)
+app.include_router(simulation.router)
 
 
 @app.get("/health")
