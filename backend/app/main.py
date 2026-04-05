@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.scheduler import start_scheduler, stop_scheduler
-from app.services.parameter_service import seed_default_parameters
+from app.services.parameter_service import seed_default_parameters, seed_wide_dc_inventory
 from app.api import (
     auth,
     users,
@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_default_parameters(db)
+        seed_wide_dc_inventory(db)
     finally:
         db.close()
     start_scheduler()
