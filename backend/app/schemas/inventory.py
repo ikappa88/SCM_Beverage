@@ -5,10 +5,20 @@ from app.schemas.location import LocationResponse
 from app.schemas.product import ProductResponse
 
 
+class InventoryCreate(BaseModel):
+    location_id: int
+    product_id: int
+    quantity: int
+    manufacture_date: date
+    expiry_date: Optional[date] = None
+    note: Optional[str] = None
+
+
 class InventoryUpdate(BaseModel):
     quantity: Optional[int] = None
     safety_stock: Optional[int] = None
     max_stock: Optional[int] = None
+    manufacture_date: Optional[date] = None
     expiry_date: Optional[date] = None
     note: Optional[str] = None
 
@@ -20,6 +30,7 @@ class InventoryResponse(BaseModel):
     quantity: int
     safety_stock: int
     max_stock: int
+    manufacture_date: Optional[date] = None
     expiry_date: Optional[date] = None
     note: Optional[str] = None
     location: LocationResponse

@@ -27,6 +27,9 @@ class Inventory(Base, TimestampMixin):
     expiry_date: Mapped[Optional[date]] = mapped_column(
         Date, nullable=True, comment="賞味期限"
     )
+    manufacture_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True, comment="製造日（ロット識別キー）"
+    )
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="備考")
 
     location = relationship("Location", foreign_keys=[location_id])

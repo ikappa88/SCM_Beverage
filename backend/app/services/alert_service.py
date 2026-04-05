@@ -6,6 +6,7 @@
 """
 
 from datetime import date, datetime, timedelta, timezone
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.alert import Alert, AlertSeverity, AlertStatus, AlertType
@@ -123,11 +124,25 @@ def _resolve_alert(db: Session, location_id: int, product_id: int, alert_type: A
         alert.resolved_at = datetime.now(timezone.utc)
 
 
+def _get_total_quantity(db: Session, location_id: int, product_id: int) -> int:
+    """拠点×商品の全ロット合計在庫数を返す"""
+    result = (
+        db.query(func.coalesce(func.sum(Inventory.quantity), 0))
+        .filter(
+            Inventory.location_id == location_id,
+            Inventory.product_id == product_id,
+        )
+        .scalar()
+    )
+    return int(result)
+
+
 def _evaluate_stockout(db: Session, inv: Inventory) -> None:
     loc_name = inv.location.name if inv.location else f"ID:{inv.location_id}"
     prd_name = inv.product.name if inv.product else f"ID:{inv.product_id}"
+    total = _get_total_quantity(db, inv.location_id, inv.product_id)
 
-    if inv.quantity <= 0:
+    if total <= 0:
         _create_alert(
             db, inv,
             alert_type=AlertType.STOCKOUT,
@@ -148,8 +163,9 @@ def _evaluate_low_stock(db: Session, inv: Inventory) -> None:
 
     loc_name = inv.location.name if inv.location else f"ID:{inv.location_id}"
     prd_name = inv.product.name if inv.product else f"ID:{inv.product_id}"
+    total = _get_total_quantity(db, inv.location_id, inv.product_id)
 
-    if 0 < inv.quantity < inv.safety_stock:
+    if 0 < total < inv.safety_stock:
         _create_alert(
             db, inv,
             alert_type=AlertType.LOW_STOCK,
@@ -157,7 +173,7 @@ def _evaluate_low_stock(db: Session, inv: Inventory) -> None:
             title=f"安全在庫割れ: {prd_name}",
             message=(
                 f"拠点「{loc_name}」の商品「{prd_name}」が"
-                f"安全在庫（{inv.safety_stock}）を下回っています（現在: {inv.quantity}）。"
+                f"安全在庫（{inv.safety_stock}）を下回っています（合計在庫: {total}）。"
             ),
         )
     else:
@@ -170,8 +186,9 @@ def _evaluate_overstock(db: Session, inv: Inventory) -> None:
 
     loc_name = inv.location.name if inv.location else f"ID:{inv.location_id}"
     prd_name = inv.product.name if inv.product else f"ID:{inv.product_id}"
+    total = _get_total_quantity(db, inv.location_id, inv.product_id)
 
-    if inv.quantity > inv.max_stock:
+    if total > inv.max_stock:
         _create_alert(
             db, inv,
             alert_type=AlertType.OVERSTOCK,
@@ -179,7 +196,7 @@ def _evaluate_overstock(db: Session, inv: Inventory) -> None:
             title=f"過剰在庫: {prd_name}",
             message=(
                 f"拠点「{loc_name}」の商品「{prd_name}」が"
-                f"最大在庫（{inv.max_stock}）を超えています（現在: {inv.quantity}）。"
+                f"最大在庫（{inv.max_stock}）を超えています（合計在庫: {total}）。"
             ),
         )
     else:
