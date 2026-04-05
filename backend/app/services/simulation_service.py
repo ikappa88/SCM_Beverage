@@ -113,8 +113,9 @@ def advance(db: Session, actor_user_id: int | None = None) -> AdvanceResult:
     # Step 4: order status transitions
     collected_events.extend(_advance_orders(db, new_time, params))
 
-    # Step 5: alert evaluation
-    collected_events.extend(_evaluate_alerts(db, new_time))
+    # Step 5: alert evaluation (pass session-local dedup set)
+    fired_alert_keys: set[tuple[str, int, int | None]] = set()
+    collected_events.extend(_evaluate_alerts(db, new_time, fired_alert_keys))
 
     # Step 6: persist events
     _record_events(db, new_time, hd, collected_events)
@@ -362,9 +363,13 @@ def _advance_orders(
 # ---------------------------------------------------------------------------
 
 def _evaluate_alerts(
-    db: Session, new_time: datetime
+    db: Session,
+    new_time: datetime,
+    fired_keys: set[tuple[str, int, int | None]] | None = None,
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
+    if fired_keys is None:
+        fired_keys = set()
     expiry_warning_days: int = int(
         get_param(db, "stock", "expiry_warning_days") or 30
     )
@@ -380,12 +385,13 @@ def _evaluate_alerts(
             _maybe_fire_alert(
                 db=db,
                 events=events,
+                fired_keys=fired_keys,
                 alert_type=AlertType.STOCKOUT,
                 severity=AlertSeverity.DANGER,
                 location_id=inv.location_id,
                 product_id=inv.product_id,
                 title="在庫切れ",
-                message=f"在庫がゼロになりました。",
+                message="在庫がゼロになりました。",
             )
 
         # --- Low stock (below safety_stock) ---
@@ -393,6 +399,7 @@ def _evaluate_alerts(
             _maybe_fire_alert(
                 db=db,
                 events=events,
+                fired_keys=fired_keys,
                 alert_type=AlertType.LOW_STOCK,
                 severity=AlertSeverity.WARNING,
                 location_id=inv.location_id,
@@ -410,6 +417,7 @@ def _evaluate_alerts(
                 _maybe_fire_alert(
                     db=db,
                     events=events,
+                    fired_keys=fired_keys,
                     alert_type=AlertType.EXPIRY_EXPIRED,
                     severity=AlertSeverity.DANGER,
                     location_id=inv.location_id,
@@ -421,6 +429,7 @@ def _evaluate_alerts(
                 _maybe_fire_alert(
                     db=db,
                     events=events,
+                    fired_keys=fired_keys,
                     alert_type=AlertType.EXPIRY_NEAR,
                     severity=AlertSeverity.WARNING,
                     location_id=inv.location_id,
@@ -446,6 +455,7 @@ def _evaluate_alerts(
         _maybe_fire_alert(
             db=db,
             events=events,
+            fired_keys=fired_keys,
             alert_type=AlertType.DELAY,
             severity=AlertSeverity.WARNING,
             location_id=delivery.to_location_id,
@@ -460,6 +470,7 @@ def _evaluate_alerts(
 def _maybe_fire_alert(
     db: Session,
     events: list[dict[str, Any]],
+    fired_keys: set[tuple[str, int, int | None]],
     alert_type: AlertType,
     severity: AlertSeverity,
     location_id: int,
@@ -467,7 +478,15 @@ def _maybe_fire_alert(
     title: str,
     message: str,
 ) -> None:
-    """Fire an alert only if no open alert of the same type/location/product exists."""
+    """Fire an alert only if no open alert of the same type/location/product exists.
+
+    Uses fired_keys to deduplicate within a single advance() transaction
+    (before db.commit() makes new rows visible to queries).
+    """
+    dedup_key = (alert_type.value, location_id, product_id)
+    if dedup_key in fired_keys:
+        return  # Already queued in this advance session
+
     existing = (
         db.query(Alert)
         .filter(
@@ -479,8 +498,10 @@ def _maybe_fire_alert(
         .first()
     )
     if existing is not None:
-        return  # Already open, skip duplicate
+        fired_keys.add(dedup_key)  # Track as already handled
+        return  # Already open in DB, skip duplicate
 
+    fired_keys.add(dedup_key)
     alert = Alert(
         alert_type=alert_type,
         severity=severity,
