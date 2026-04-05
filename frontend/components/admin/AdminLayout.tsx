@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { apiFetch, getAuthUser, logout } from "@/lib/auth";
 import Link from "next/link";
 import NotificationBell from "@/components/common/NotificationBell";
+import SimulationClock from "@/components/common/SimulationClock";
 
 const NAV_ITEMS = [
     { label: "ダッシュボード", href: "/admin/dashboard", icon: "📊" },
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
     { label: "監査ログ", href: "/admin/audit", icon: "📋" },
     { label: "KPI閾値設定", href: "/admin/settings", icon: "⚙️" },
     { label: "アラート設定", href: "/admin/alerts/settings", icon: "🔧" },
+    { label: "シミュレーション設定", href: "/admin/simulation", icon: "⏩" },
   ];
 
 const ALERT_POLL_MS = 5 * 60 * 1000;
@@ -98,7 +100,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </button>
         </div>
       </aside>
-      <main className="flex-1 ml-56 p-6">{children}</main>
+      <div className="flex-1 ml-56 flex flex-col min-h-screen">
+        <header className="sticky top-0 z-40 bg-gray-950 border-b border-gray-800 px-6 py-2 flex items-center justify-end gap-2">
+          <SimulationClock isAdmin />
+        </header>
+        <main className="flex-1 p-6">{children}</main>
+      </div>
     </div>
   );
 }
