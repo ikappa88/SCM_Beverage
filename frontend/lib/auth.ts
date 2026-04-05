@@ -54,7 +54,12 @@ export async function apiFetch(
   if (user) {
     headers["Authorization"] = `Bearer ${user.access_token}`;
   }
-  return fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (res.status === 401 && typeof window !== "undefined") {
+    logout();
+    window.location.href = "/login";
+  }
+  return res;
 }
 
 export { API_BASE };

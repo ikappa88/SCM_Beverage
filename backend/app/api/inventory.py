@@ -14,6 +14,7 @@ from app.models.user import User, UserRole
 from app.schemas.inventory import (
     InventoryAlertResponse,
     InventoryATPResponse,
+    InventoryCreate,
     InventoryResponse,
     InventoryUpdate,
     SafetyStockUpdate,
@@ -87,6 +88,108 @@ def _get_upstream_location_ids(db: Session, own_location_ids: list[int]) -> list
     # 自拠点と重複する場合は除外
     own_set = set(own_location_ids)
     return [r.origin_id for r in rows if r.origin_id not in own_set]
+
+
+@router.post("/", response_model=InventoryResponse, status_code=201)
+def create_lot(
+    payload: InventoryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """新規ロット作成（拠点×商品×賞味期限の組み合わせで1ロット）"""
+    if not check_location_access(current_user, payload.location_id):
+        raise HTTPException(status_code=403, detail="この拠点の在庫を更新する権限がありません")
+
+    # 同一ロット（location×product×manufacture_date）の重複チェック
+    duplicate = (
+        db.query(Inventory)
+        .filter(
+            Inventory.location_id == payload.location_id,
+            Inventory.product_id == payload.product_id,
+            Inventory.manufacture_date == payload.manufacture_date,
+        )
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail="同じ拠点・商品・製造日のロットが既に存在します",
+        )
+
+    # safety_stock / max_stock は同一拠点×商品の既存ロットからコピー
+    existing = (
+        db.query(Inventory)
+        .filter(
+            Inventory.location_id == payload.location_id,
+            Inventory.product_id == payload.product_id,
+        )
+        .first()
+    )
+    safety_stock = existing.safety_stock if existing else 0
+    max_stock = existing.max_stock if existing else 9999
+
+    inv = Inventory(
+        location_id=payload.location_id,
+        product_id=payload.product_id,
+        quantity=payload.quantity,
+        manufacture_date=payload.manufacture_date,
+        expiry_date=payload.expiry_date,
+        note=payload.note,
+        safety_stock=safety_stock,
+        max_stock=max_stock,
+    )
+    db.add(inv)
+    db.commit()
+    db.refresh(inv)
+
+    from app.models.audit_log import AuditAction
+    from app.services.audit import record
+    from app.services.alert_service import evaluate_inventory_alert
+
+    record(
+        db,
+        username=current_user.username,
+        action=AuditAction.CREATE,
+        resource="inventory",
+        resource_id=str(inv.id),
+        detail=f"ロット追加: manufacture={payload.manufacture_date}, expiry={payload.expiry_date}, qty={payload.quantity}",
+        user_id=current_user.id,
+        location_id=inv.location_id,
+    )
+    evaluate_inventory_alert(db, inv)
+    db.commit()
+    db.refresh(inv)
+    return inv
+
+
+@router.delete("/{inventory_id}", status_code=204)
+def delete_lot(
+    inventory_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """ロット削除（担当拠点の実務者・管理者）"""
+    inv = db.query(Inventory).filter(Inventory.id == inventory_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="在庫データが見つかりません")
+    if not check_location_access(current_user, inv.location_id):
+        raise HTTPException(status_code=403, detail="この拠点の在庫を更新する権限がありません")
+
+    from app.models.audit_log import AuditAction
+    from app.services.audit import record
+
+    record(
+        db,
+        username=current_user.username,
+        action=AuditAction.DELETE,
+        resource="inventory",
+        resource_id=str(inventory_id),
+        detail=f"ロット削除: manufacture={inv.manufacture_date}, expiry={inv.expiry_date}, qty={inv.quantity}",
+        user_id=current_user.id,
+        location_id=inv.location_id,
+    )
+    db.delete(inv)
+    db.commit()
 
 
 @router.get("/", response_model=list[InventoryResponse])

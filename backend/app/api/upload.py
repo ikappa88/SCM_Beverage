@@ -1,4 +1,5 @@
 import io
+from datetime import date
 from typing import Optional
 
 import pandas as pd
@@ -49,6 +50,9 @@ def _validate_and_build_rows(df: pd.DataFrame, db: Session, current_user: User):
             detail=f"行数が上限（{MAX_ROWS}行）を超えています（{len(df)}行）",
         )
 
+    has_mfg_col = "manufacture_date" in df.columns
+    has_expiry_col = "expiry_date" in df.columns
+
     for idx, row in df.iterrows():
         row_num = int(idx) + 2
 
@@ -77,6 +81,47 @@ def _validate_and_build_rows(df: pd.DataFrame, db: Session, current_user: User):
                 }
             )
             continue
+
+        # manufacture_date のパース（列がある場合のみ）
+        manufacture_date: Optional[date] = None
+        if has_mfg_col:
+            mfg_str = str(row.get("manufacture_date", "")).strip()
+            if mfg_str and mfg_str.lower() not in ("nan", "none", ""):
+                try:
+                    manufacture_date = date.fromisoformat(mfg_str)
+                except ValueError:
+                    errors.append(
+                        {
+                            "row": row_num,
+                            "reason": f"manufacture_date '{mfg_str}' はYYYY-MM-DD形式で入力してください",
+                        }
+                    )
+                    continue
+
+        if has_mfg_col and manufacture_date is None:
+            errors.append(
+                {
+                    "row": row_num,
+                    "reason": "manufacture_date列が存在する場合、値は必須です（YYYY-MM-DD形式）",
+                }
+            )
+            continue
+
+        # expiry_date のパース（任意）
+        expiry_date: Optional[date] = None
+        if has_expiry_col:
+            exp_str = str(row.get("expiry_date", "")).strip()
+            if exp_str and exp_str.lower() not in ("nan", "none", ""):
+                try:
+                    expiry_date = date.fromisoformat(exp_str)
+                except ValueError:
+                    errors.append(
+                        {
+                            "row": row_num,
+                            "reason": f"expiry_date '{exp_str}' はYYYY-MM-DD形式で入力してください",
+                        }
+                    )
+                    continue
 
         location = (
             db.query(Location)
@@ -115,28 +160,51 @@ def _validate_and_build_rows(df: pd.DataFrame, db: Session, current_user: User):
             )
             continue
 
-        inv = (
-            db.query(Inventory)
-            .filter(
-                Inventory.location_id == location.id,
-                Inventory.product_id == product.id,
+        # manufacture_date ありの場合: ロット一致で検索（なければ新規作成）
+        # manufacture_date なし（列自体がない）の場合: 先頭ロットを更新
+        if manufacture_date is not None:
+            inv = (
+                db.query(Inventory)
+                .filter(
+                    Inventory.location_id == location.id,
+                    Inventory.product_id == product.id,
+                    Inventory.manufacture_date == manufacture_date,
+                )
+                .first()
             )
-            .first()
-        )
+            action = "update" if inv else "create"
+        else:
+            inv = (
+                db.query(Inventory)
+                .filter(
+                    Inventory.location_id == location.id,
+                    Inventory.product_id == product.id,
+                )
+                .first()
+            )
+            action = "update" if inv else None
 
-        if inv is None:
+        if action is None:
             errors.append(
                 {
                     "row": row_num,
-                    "reason": f"拠点 '{location_code}' × 商品 '{product_code}' の在庫レコードが存在しません",
+                    "reason": (
+                        f"拠点 '{location_code}' × 商品 '{product_code}' の在庫ロットが存在しません。"
+                        "manufacture_date列を追加して新規ロットを作成してください。"
+                    ),
                 }
             )
             continue
 
         rows.append(
             {
-                "inventory_id": inv.id,
+                "inventory_id": inv.id if inv else None,
                 "quantity": quantity,
+                "action": action,
+                "location_id": location.id,
+                "product_id": product.id,
+                "manufacture_date": manufacture_date,
+                "expiry_date": expiry_date,
             }
         )
         previews.append(
@@ -146,6 +214,9 @@ def _validate_and_build_rows(df: pd.DataFrame, db: Session, current_user: User):
                 "location_name": location.name,
                 "product_code": product_code,
                 "product_name": product.name,
+                "manufacture_date": manufacture_date.isoformat() if manufacture_date else None,
+                "expiry_date": expiry_date.isoformat() if expiry_date else None,
+                "action": action,
                 "current_quantity": inv.quantity if inv else None,
                 "new_quantity": quantity,
                 "inventory_id": inv.id if inv else None,
@@ -235,15 +306,47 @@ async def commit_inventory_upload(
     # 全件正常 → トランザクションでコミット
     try:
         updated = 0
+        created = 0
+        upserted_ids: list[int] = []
+
         for row in rows:
-            if row["inventory_id"] is None:
-                continue
-            inv = (
-                db.query(Inventory).filter(Inventory.id == row["inventory_id"]).first()
-            )
-            if inv:
-                inv.quantity = row["quantity"]
-                updated += 1
+            if row["action"] == "update" and row["inventory_id"] is not None:
+                inv = (
+                    db.query(Inventory)
+                    .filter(Inventory.id == row["inventory_id"])
+                    .first()
+                )
+                if inv:
+                    inv.quantity = row["quantity"]
+                    upserted_ids.append(inv.id)
+                    updated += 1
+            elif row["action"] == "create":
+                # safety_stock / max_stock を同一拠点×商品の既存ロットからコピー
+                existing = (
+                    db.query(Inventory)
+                    .filter(
+                        Inventory.location_id == row["location_id"],
+                        Inventory.product_id == row["product_id"],
+                    )
+                    .first()
+                )
+                safety_stock = existing.safety_stock if existing else 0
+                max_stock = existing.max_stock if existing else 9999
+
+                new_inv = Inventory(
+                    location_id=row["location_id"],
+                    product_id=row["product_id"],
+                    quantity=row["quantity"],
+                    manufacture_date=row["manufacture_date"],
+                    expiry_date=row["expiry_date"],
+                    safety_stock=safety_stock,
+                    max_stock=max_stock,
+                )
+                db.add(new_inv)
+                db.flush()
+                upserted_ids.append(new_inv.id)
+                created += 1
+
         db.commit()
 
         from app.models.audit_log import AuditAction
@@ -255,13 +358,11 @@ async def commit_inventory_upload(
             username=current_user.username,
             action=AuditAction.UPLOAD,
             resource="inventory",
-            detail=f"CSVアップロード: {updated}件更新",
+            detail=f"CSVアップロード: {updated}件更新, {created}件新規ロット作成",
             user_id=current_user.id,
         )
 
-        # 更新した在庫を対象にアラートを自動評価
-        updated_ids = [r["inventory_id"] for r in rows if r["inventory_id"] is not None]
-        evaluate_inventory_alerts_bulk(db, updated_ids)
+        evaluate_inventory_alerts_bulk(db, upserted_ids)
         db.commit()
 
     except Exception as e:
@@ -270,7 +371,11 @@ async def commit_inventory_upload(
             status_code=500, detail=f"取り込み中にエラーが発生しました: {str(e)}"
         )
 
-    return {"message": f"{updated}件の在庫データを更新しました", "updated": updated}
+    return {
+        "message": f"{updated}件更新、{created}件新規ロット作成しました",
+        "updated": updated,
+        "created": created,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────
