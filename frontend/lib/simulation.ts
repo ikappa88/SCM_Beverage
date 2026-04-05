@@ -93,6 +93,62 @@ export function formatVirtualDate(iso: string): string {
   return iso.slice(0, 10);
 }
 
+// ---------------------------------------------------------------------------
+// Movement Plan types
+// ---------------------------------------------------------------------------
+
+export interface MovementPlanDay {
+  date: string;
+  inbound: number;
+  demand_estimate: number;
+  projected_stock: number;
+  is_stockout: boolean;
+}
+
+export interface MovementPlan {
+  tc_location_id: number;
+  product_id: number;
+  current_stock: number;
+  safety_stock: number;
+  atp: number;
+  stockout_date: string | null;
+  days: MovementPlanDay[];
+  wide_dc_quantity: number;
+}
+
+export interface WideDcStatusItem {
+  dc_location_id: number;
+  product_id: number;
+  quantity: number;
+  safety_stock: number;
+  level: "sufficient" | "warning" | "stockout";
+}
+
+export async function fetchMovementPlan(
+  tc_location_id: number,
+  product_id: number,
+  forecast_days = 14
+): Promise<MovementPlan> {
+  const params = new URLSearchParams({
+    tc_location_id: String(tc_location_id),
+    product_id: String(product_id),
+    forecast_days: String(forecast_days),
+  });
+  const res = await apiFetch(`/api/simulation/movement-plan?${params}`);
+  if (!res.ok) throw new Error("荷動き計画の取得に失敗しました");
+  return res.json();
+}
+
+export async function fetchWideDcStatus(): Promise<WideDcStatusItem[]> {
+  const res = await apiFetch("/api/simulation/wide-dc-status");
+  if (!res.ok) throw new Error("広域DC状況の取得に失敗しました");
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Event labels
+// ---------------------------------------------------------------------------
+
 const EVENT_LABELS: Record<string, string> = {
   inventory_consumed: "在庫消費",
   stockout: "欠品発生",
@@ -100,6 +156,11 @@ const EVENT_LABELS: Record<string, string> = {
   delivery_status_changed: "配送状況変化",
   order_status_changed: "注文状況変化",
   alert_fired: "アラート発火",
+  factory_produced: "工場生産",
+  factory_line_stopped: "ライン停止",
+  wide_dc_received: "広域DC受荷",
+  wide_dc_shipped: "広域DC出荷",
+  wide_dc_shortage: "広域DC在庫不足",
 };
 
 export function eventLabel(event_type: string): string {
