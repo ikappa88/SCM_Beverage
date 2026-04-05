@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import OperatorLayout from "@/components/operator/OperatorLayout";
 import { apiFetch, getAuthUser } from "@/lib/auth";
 
@@ -74,16 +75,16 @@ export default function OperatorDashboard() {
           <div className="text-2xl font-semibold text-teal-400">{totalStock.toLocaleString()}</div>
           <div className="text-xs text-gray-500 mt-0.5">担当拠点合計</div>
         </div>
-        <div className={`bg-gray-900 border rounded-xl p-4 ${dangerCount > 0 ? "border-red-800" : "border-gray-800"}`}>
-          <div className="text-xs text-gray-400 mb-1">危機アラート</div>
+        <Link href="/operator/alerts?status=open&severity=danger" className={`bg-gray-900 border rounded-xl p-4 block hover:border-red-700 transition-colors ${dangerCount > 0 ? "border-red-800" : "border-gray-800"}`}>
+          <div className="text-xs text-gray-400 mb-1">緊急アラート</div>
           <div className={`text-2xl font-semibold ${dangerCount > 0 ? "text-red-400" : "text-gray-400"}`}>{dangerCount}</div>
-          <div className="text-xs text-gray-500 mt-0.5">在庫ゼロ品目</div>
-        </div>
-        <div className={`bg-gray-900 border rounded-xl p-4 ${warningCount > 0 ? "border-amber-800" : "border-gray-800"}`}>
+          <div className="text-xs text-gray-500 mt-0.5">クリックして確認 →</div>
+        </Link>
+        <Link href="/operator/alerts?status=open&severity=warning" className={`bg-gray-900 border rounded-xl p-4 block hover:border-amber-700 transition-colors ${warningCount > 0 ? "border-amber-800" : "border-gray-800"}`}>
           <div className="text-xs text-gray-400 mb-1">警告アラート</div>
           <div className={`text-2xl font-semibold ${warningCount > 0 ? "text-amber-400" : "text-gray-400"}`}>{warningCount}</div>
-          <div className="text-xs text-gray-500 mt-0.5">安全在庫割れ</div>
-        </div>
+          <div className="text-xs text-gray-500 mt-0.5">クリックして確認 →</div>
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
