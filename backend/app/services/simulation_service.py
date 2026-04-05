@@ -23,10 +23,14 @@ from sqlalchemy.orm import Session
 from app.models.alert import Alert, AlertSeverity, AlertStatus, AlertType
 from app.models.delivery_record import DeliveryRecord, DeliveryStatus
 from app.models.inventory import Inventory
+from app.models.location import Location, LocationType
 from app.models.order import Order, OrderStatus
 from app.models.simulation import SimulationClock, SimulationEvent
+from app.models.wide_dc_inventory import WideDcInventory
 from app.services.demand_model import calculate_demand
+from app.services.factory_service import produce_and_ship
 from app.services.parameter_service import get_all_params, get_param
+from app.services.wide_dc_service import advance_tc_replenishment, process_factory_inbound
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -104,16 +108,22 @@ def advance(db: Session, actor_user_id: int | None = None) -> AdvanceResult:
     params = get_all_params(db)
     collected_events: list[dict[str, Any]] = []
 
-    # Step 2: delivery status transitions
-    collected_events.extend(_advance_deliveries(db, new_time, params))
+    # Step 2: factory production → ship to wide DC
+    collected_events.extend(produce_and_ship(db, new_time, hd, params))
 
-    # Step 3: inventory consumption
+    # Step 3: factory→DC deliveries that have arrived → credit wide_dc_inventory
+    collected_events.extend(process_factory_inbound(db, new_time, params))
+
+    # Step 4: DC→TC replenishment: confirmed TC orders → ship from DC (stock check)
+    collected_events.extend(advance_tc_replenishment(db, new_time, params))
+
+    # Step 5: DC→TC deliveries in transit → advance status / credit TC inventory on arrival
+    collected_events.extend(_advance_dc_to_tc_deliveries(db, new_time, params))
+
+    # Step 6: TC inventory consumption (retail demand)
     collected_events.extend(_consume_demand(db, new_time, hd, params))
 
-    # Step 4: order status transitions
-    collected_events.extend(_advance_orders(db, new_time, params))
-
-    # Step 5: alert evaluation (pass session-local dedup set)
+    # Step 7: alert evaluation (pass session-local dedup set)
     fired_alert_keys: set[tuple[str, int, int | None]] = set()
     collected_events.extend(_evaluate_alerts(db, new_time, fired_alert_keys))
 
@@ -141,68 +151,77 @@ def reset(db: Session) -> SimulationClock:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Delivery status transitions
+# Step 5: DC→TC delivery status transitions
 # ---------------------------------------------------------------------------
 
-# Lead time in half-days per status transition
-_STATUS_LEAD_HALF_DAYS: dict[DeliveryStatus, DeliveryStatus] = {
+_STATUS_NEXT: dict[DeliveryStatus, DeliveryStatus] = {
     DeliveryStatus.SCHEDULED: DeliveryStatus.DEPARTED,
     DeliveryStatus.DEPARTED: DeliveryStatus.IN_TRANSIT,
     DeliveryStatus.IN_TRANSIT: DeliveryStatus.ARRIVED,
 }
 
 
-def _advance_deliveries(
+def _advance_dc_to_tc_deliveries(
     db: Session, new_time: datetime, params: dict[str, Any]
 ) -> list[dict[str, Any]]:
+    """
+    Advance status of DC→TC deliveries (created by wide_dc_service).
+    On ARRIVED: credit TC inventory.
+    Factory→DC deliveries are handled separately by wide_dc_service.process_factory_inbound.
+    """
     events: list[dict[str, Any]] = []
-    lead_half_days: int = int(params.get("delivery.default_lead_time_half_days", 4))
-    jitter: dict[str, Any] = params.get(
-        "delivery.lead_time_jitter_half_days", {"min": -1, "max": 2}
-    )
+
+    tc_ids = {
+        loc.id
+        for loc in db.query(Location)
+        .filter(Location.location_type == LocationType.TC, Location.is_active == True)
+        .all()
+    }
+    if not tc_ids:
+        return events
+
+    lead_half_days: int = int(params.get("wide_dc.lead_time_to_tc_half_days", 4))
+    jitter: dict[str, Any] = params.get("wide_dc.lead_time_jitter_half_days", {"min": -1, "max": 2})
     jitter_min: int = int(jitter.get("min", -1))
     jitter_max: int = int(jitter.get("max", 2))
+    extra: int = int(params.get("wide_dc.weekend_extra_half_days", 2))
 
-    active_statuses = list(_STATUS_LEAD_HALF_DAYS.keys())
+    active_statuses = list(_STATUS_NEXT.keys())
     deliveries = (
         db.query(DeliveryRecord)
-        .filter(DeliveryRecord.status.in_(active_statuses))
+        .filter(
+            DeliveryRecord.to_location_id.in_(tc_ids),
+            DeliveryRecord.status.in_(active_statuses),
+        )
         .all()
     )
 
     for delivery in deliveries:
-        next_status = _STATUS_LEAD_HALF_DAYS[delivery.status]
+        next_status = _STATUS_NEXT[delivery.status]
+        ref_date = delivery.scheduled_departure_date
+        ref_dt = datetime(ref_date.year, ref_date.month, ref_date.day, 9, 0)
+        elapsed_half_days = math.floor(
+            (new_time - ref_dt).total_seconds() / 3600.0 / 12
+        )
 
-        # Estimate elapsed half-days since scheduled_departure_date
-        reference_date: date = delivery.scheduled_departure_date
-        reference_dt = datetime(reference_date.year, reference_date.month, reference_date.day, 9, 0)
-        elapsed_hours = (new_time - reference_dt).total_seconds() / 3600.0
-        elapsed_half_days = math.floor(elapsed_hours / 12)
-
-        # Each transition requires lead_time half-days (+ deterministic jitter seeded by delivery id)
-        import random
         rng = random.Random(delivery.id)
         effective_lead = lead_half_days + rng.randint(jitter_min, jitter_max)
-        # Weekend crossing penalty
-        extra: int = int(params.get("delivery.weekend_extra_half_days", 2))
-        weekday = new_time.weekday()
-        if weekday >= 5:  # Saturday or Sunday
+        if new_time.weekday() >= 5:
             effective_lead += extra
 
-        transition_threshold = {
+        threshold = {
             DeliveryStatus.SCHEDULED: 1,
             DeliveryStatus.DEPARTED: 2,
             DeliveryStatus.IN_TRANSIT: max(1, effective_lead),
         }.get(delivery.status, effective_lead)
 
-        if elapsed_half_days >= transition_threshold:
+        if elapsed_half_days >= threshold:
             old_status = delivery.status
             delivery.status = next_status
 
-            # When ARRIVED: credit inventory to destination
             if next_status == DeliveryStatus.ARRIVED:
                 delivery.actual_arrival_date = new_time.date()
-                _credit_inventory(db, delivery)
+                _credit_tc_inventory(db, delivery)
                 events.append({
                     "event_type": "delivery_arrived",
                     "payload": {
@@ -225,8 +244,8 @@ def _advance_deliveries(
     return events
 
 
-def _credit_inventory(db: Session, delivery: DeliveryRecord) -> None:
-    """Add delivered quantity to the destination location's inventory."""
+def _credit_tc_inventory(db: Session, delivery: DeliveryRecord) -> None:
+    """Add delivered quantity to the TC inventory (first matching lot row)."""
     inv = (
         db.query(Inventory)
         .filter_by(
@@ -237,7 +256,6 @@ def _credit_inventory(db: Session, delivery: DeliveryRecord) -> None:
     )
     if inv:
         inv.quantity += delivery.quantity
-    # If no inventory row exists, we don't auto-create one (requires lot info).
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +272,14 @@ def _consume_demand(
     seed_val = params.get("clock.rng_seed")
     seed: int | None = int(seed_val) if seed_val is not None else None
 
-    inventories = db.query(Inventory).all()
+    # Consume only TC inventory (not factory/DC stock)
+    tc_ids = {
+        loc.id
+        for loc in db.query(Location)
+        .filter(Location.location_type == LocationType.TC, Location.is_active == True)
+        .all()
+    }
+    inventories = db.query(Inventory).filter(Inventory.location_id.in_(tc_ids)).all()
 
     for inv in inventories:
         base_demand_key = f"demand.base_daily_{inv.location_id}_{inv.product_id}"
@@ -309,57 +334,7 @@ def _consume_demand(
 
 
 # ---------------------------------------------------------------------------
-# Step 4: Order status transitions
-# ---------------------------------------------------------------------------
-
-def _advance_orders(
-    db: Session, new_time: datetime, params: dict[str, Any]
-) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-
-    # CONFIRMED → IN_TRANSIT (one transition per advance, only during AM)
-    if _half_day(new_time) == "AM":
-        confirmed_orders = (
-            db.query(Order)
-            .filter(Order.status == OrderStatus.CONFIRMED)
-            .all()
-        )
-        for order in confirmed_orders:
-            order.status = OrderStatus.IN_TRANSIT
-            events.append({
-                "event_type": "order_status_changed",
-                "payload": {
-                    "order_code": order.order_code,
-                    "from": OrderStatus.CONFIRMED.value,
-                    "to": OrderStatus.IN_TRANSIT.value,
-                },
-            })
-
-    # IN_TRANSIT → DELIVERED (when expected_delivery_date <= virtual date)
-    in_transit_orders = (
-        db.query(Order)
-        .filter(Order.status == OrderStatus.IN_TRANSIT)
-        .all()
-    )
-    for order in in_transit_orders:
-        expected = order.expected_delivery_date
-        if expected is not None and expected <= new_time.date():
-            order.status = OrderStatus.DELIVERED
-            order.actual_delivery_date = new_time.date()
-            events.append({
-                "event_type": "order_status_changed",
-                "payload": {
-                    "order_code": order.order_code,
-                    "from": OrderStatus.IN_TRANSIT.value,
-                    "to": OrderStatus.DELIVERED.value,
-                },
-            })
-
-    return events
-
-
-# ---------------------------------------------------------------------------
-# Step 5: Alert evaluation
+# Step 7: Alert evaluation
 # ---------------------------------------------------------------------------
 
 def _evaluate_alerts(
@@ -438,10 +413,17 @@ def _evaluate_alerts(
                     message=f"賞味期限まであと {days_left} 日です（{inv.expiry_date}）。",
                 )
 
-    # --- Delivery delay ---
+    # --- Delivery delay (TC inbound only) ---
+    tc_ids = {
+        loc.id
+        for loc in db.query(Location)
+        .filter(Location.location_type == LocationType.TC, Location.is_active == True)
+        .all()
+    }
     delayed_deliveries = (
         db.query(DeliveryRecord)
         .filter(
+            DeliveryRecord.to_location_id.in_(tc_ids),
             DeliveryRecord.status.in_([
                 DeliveryStatus.SCHEDULED,
                 DeliveryStatus.DEPARTED,
@@ -463,6 +445,24 @@ def _evaluate_alerts(
             title="配送遅延",
             message=f"配送 {delivery.delivery_code} が到着予定日を過ぎています。",
         )
+
+    # --- Wide DC low stock ---
+    wide_dc_safety = int(get_param(db, "wide_dc", "safety_stock_per_product") or 3000)
+    dc_inventories = db.query(WideDcInventory).all()
+    for dc_inv in dc_inventories:
+        if dc_inv.quantity <= wide_dc_safety:
+            severity = AlertSeverity.DANGER if dc_inv.quantity == 0 else AlertSeverity.WARNING
+            _maybe_fire_alert(
+                db=db,
+                events=events,
+                fired_keys=fired_keys,
+                alert_type=AlertType.LOW_STOCK,
+                severity=severity,
+                location_id=dc_inv.location_id,
+                product_id=dc_inv.product_id,
+                title="広域DC在庫低下",
+                message=f"広域DC在庫 {dc_inv.quantity} が安全在庫 {wide_dc_safety} 以下です。",
+            )
 
     return events
 
