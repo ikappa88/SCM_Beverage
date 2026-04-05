@@ -10,6 +10,11 @@ const EVENT_COLORS: Record<string, string> = {
   delivery_status_changed: "text-cyan-400",
   order_status_changed:    "text-purple-400",
   alert_fired:             "text-yellow-400",
+  factory_produced:        "text-green-400",
+  factory_line_stopped:    "text-orange-400",
+  wide_dc_received:        "text-emerald-400",
+  wide_dc_shipped:         "text-sky-400",
+  wide_dc_shortage:        "text-rose-400",
 };
 
 const EVENT_ICONS: Record<string, string> = {
@@ -19,6 +24,11 @@ const EVENT_ICONS: Record<string, string> = {
   delivery_status_changed: "🚚",
   order_status_changed:    "📋",
   alert_fired:             "🔔",
+  factory_produced:        "🏭",
+  factory_line_stopped:    "⛔",
+  wide_dc_received:        "🏬",
+  wide_dc_shipped:         "📤",
+  wide_dc_shortage:        "⚠️",
 };
 
 function eventSummary(event: SimulationEventRecord): string {
@@ -36,6 +46,16 @@ function eventSummary(event: SimulationEventRecord): string {
       return `${p.order_code}: ${p.from} → ${p.to}`;
     case "alert_fired":
       return `[${p.alert_type}] ${p.title} (拠点${p.location_id})`;
+    case "factory_produced":
+      return `工場${p.factory_id}→DC${p.dc_id} 商品${p.product_id}: ${p.quantity}本生産 (到着${p.expected_arrival_date})`;
+    case "factory_line_stopped":
+      return `工場${p.factory_id} (${p.factory_name}): ライン停止 商品${p.product_id}`;
+    case "wide_dc_received":
+      return `DC${p.dc_id} 商品${p.product_id}: +${p.quantity}本 (${p.delivery_code})`;
+    case "wide_dc_shipped":
+      return `DC${p.dc_id}→TC${p.tc_id} 商品${p.product_id}: ${p.quantity}本出荷 (到着${p.expected_arrival_date})`;
+    case "wide_dc_shortage":
+      return `DC${p.dc_id} 商品${p.product_id}: 在庫不足 要求${p.requested} 在庫${p.available}`;
     default:
       return JSON.stringify(p).slice(0, 60);
   }

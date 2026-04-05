@@ -9,11 +9,14 @@ from app.models.user import User
 from app.schemas.simulation import (
     AdvanceResponse,
     ClockResponse,
+    MovementPlanResponse,
     SimulationEventResponse,
     SimulationParameterResponse,
     SimulationParameterUpdate,
+    WideDcStatusItem,
 )
 from app.services.auth import get_current_user, require_administrator
+from app.services.movement_plan_service import build_movement_plan, build_wide_dc_status
 from app.services.simulation_service import advance, get_clock, reset
 from app.services.parameter_service import get_all_params, set_param
 
@@ -112,6 +115,48 @@ def list_parameters(
         query = query.filter(SimulationParameter.category == category)
     rows = query.order_by(SimulationParameter.category, SimulationParameter.key).all()
     return [SimulationParameterResponse.model_validate(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Movement Plan
+# ---------------------------------------------------------------------------
+
+@router.get("/movement-plan", response_model=MovementPlanResponse)
+def get_movement_plan(
+    tc_location_id: int = Query(..., description="地域TC のロケーションID"),
+    product_id: int = Query(..., description="製品ID"),
+    forecast_days: int = Query(default=14, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MovementPlanResponse:
+    """
+    指定した (TC, 製品) の荷動き計画を取得する。
+    現在の仮想時刻を起点に forecast_days 日間の在庫推移を返す。
+    """
+    from app.services.simulation_service import get_clock
+    clock = get_clock(db)
+    result = build_movement_plan(
+        db=db,
+        tc_location_id=tc_location_id,
+        product_id=product_id,
+        virtual_time=clock.virtual_time,
+        forecast_days=forecast_days,
+    )
+    return MovementPlanResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# Wide DC Status
+# ---------------------------------------------------------------------------
+
+@router.get("/wide-dc-status", response_model=list[WideDcStatusItem])
+def get_wide_dc_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[WideDcStatusItem]:
+    """広域DC在庫の現在状況を返す。"""
+    rows = build_wide_dc_status(db)
+    return [WideDcStatusItem(**r) for r in rows]
 
 
 @router.patch("/parameters", response_model=SimulationParameterResponse)

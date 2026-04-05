@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { label: "アラート管理",     href: "/operator/alerts",    icon: "🔔" },
   { label: "発注・補充指示",   href: "/operator/orders",    icon: "📋" },
   { label: "配送管理",         href: "/operator/delivery",  icon: "🚚" },
+  { label: "荷動き計画",       href: "/operator/movement-plan", icon: "📈" },
   { label: "計画ビュー",       href: "/operator/planning",  icon: "📅" },
   { label: "商品マスタ",       href: "/operator/products",  icon: "🥤" },
   { label: "ルートマスタ",     href: "/operator/routes",    icon: "🗺️" },
