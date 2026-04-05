@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import OperatorLayout from "@/components/operator/OperatorLayout";
 import { apiFetch } from "@/lib/auth";
 import { downloadCsv } from "@/lib/csv";
@@ -283,7 +284,15 @@ export default function InventoryPage() {
                       <button onClick={() => openEdit(lot)} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">修正</button>
                       <button onClick={() => setDeleteTarget(lot)} className="text-xs text-red-500 hover:text-red-400 transition-colors">削除</button>
                       {lotIdx === 0 && (
-                        <button onClick={() => openAdd(g)} className="text-xs text-teal-400 hover:text-teal-300 transition-colors">+ ロット追加</button>
+                        <>
+                          <button onClick={() => openAdd(g)} className="text-xs text-teal-400 hover:text-teal-300 transition-colors">+ ロット追加</button>
+                          <Link
+                            href={`/operator/inventory/timeline?location_id=${g.location.id}&product_id=${g.product.id}`}
+                            className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                          >
+                            履歴
+                          </Link>
+                        </>
                       )}
                     </div>
                   </td>

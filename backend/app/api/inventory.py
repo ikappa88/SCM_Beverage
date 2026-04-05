@@ -1,7 +1,8 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+﻿from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
-from typing import Optional
+from typing import Any, Optional
 import io
 import pandas as pd
 
@@ -492,3 +493,128 @@ async def bulk_update_safety_stocks(
     db.commit()
 
     return {"updated": updated}
+
+
+# ---------------------------------------------------------------------------
+# 統合タイムライン（P2-008）
+# ---------------------------------------------------------------------------
+
+@router.get("/timeline")
+def get_inventory_timeline(
+    location_id: int = Query(...),
+    product_id: int = Query(...),
+    days: int = Query(default=30, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """
+    拠点×商品の統合タイムラインを返す。
+    - 発注作成・確定・キャンセル
+    - 配送スケジュール・出発・到着
+    - 在庫変動（audit_log から）
+    の時系列イベントを統合して返す。
+    """
+    from app.models.audit_log import AuditLog
+    from app.models.location import Location
+    from app.models.product import Product
+
+    if not check_location_access(current_user, location_id):
+        raise HTTPException(status_code=403, detail="アクセス権限がありません")
+
+    location = db.query(Location).filter(Location.id == location_id).first()
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not location or not product:
+        raise HTTPException(status_code=404, detail="拠点または商品が見つかりません")
+
+    # 現在の在庫（全ロット合計）
+    current_total = (
+        db.query(func.coalesce(func.sum(Inventory.quantity), 0))
+        .filter(Inventory.location_id == location_id, Inventory.product_id == product_id)
+        .scalar()
+    )
+    inv_row = (
+        db.query(Inventory)
+        .filter_by(location_id=location_id, product_id=product_id)
+        .first()
+    )
+    safety_stock = inv_row.safety_stock if inv_row else 0
+
+    events: list[dict[str, Any]] = []
+
+    # 発注イベント
+    orders = (
+        db.query(Order)
+        .options(joinedload(Order.product), joinedload(Order.to_location))
+        .filter(
+            Order.to_location_id == location_id,
+            Order.product_id == product_id,
+        )
+        .order_by(Order.created_at.asc())
+        .limit(100)
+        .all()
+    )
+    for o in orders:
+        events.append({
+            "type": "order",
+            "date": o.created_at.isoformat() if o.created_at else None,
+            "label": f"発注 {o.order_code}（{o.status}）+{o.quantity}",
+            "detail": {"order_code": o.order_code, "status": o.status, "quantity": o.quantity},
+        })
+
+    # 配送イベント
+    deliveries = (
+        db.query(DeliveryRecord)
+        .options(joinedload(DeliveryRecord.product))
+        .filter(
+            DeliveryRecord.to_location_id == location_id,
+            DeliveryRecord.product_id == product_id,
+        )
+        .order_by(DeliveryRecord.expected_arrival_date.asc())
+        .limit(100)
+        .all()
+    )
+    for d in deliveries:
+        status_label = {"scheduled": "入荷予定", "departed": "出発済", "in_transit": "輸送中", "arrived": "到着済"}.get(d.status, d.status)
+        events.append({
+            "type": "delivery",
+            "date": (d.actual_arrival_date or d.expected_arrival_date).isoformat() if (d.actual_arrival_date or d.expected_arrival_date) else None,
+            "label": f"{status_label} {d.delivery_code} +{d.quantity}",
+            "detail": {
+                "delivery_code": d.delivery_code,
+                "status": d.status,
+                "quantity": d.quantity,
+                "expected_arrival_date": d.expected_arrival_date.isoformat() if d.expected_arrival_date else None,
+            },
+        })
+
+    # 監査ログから在庫変動
+    audit_rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.resource == "inventory",
+            AuditLog.location_id == location_id,
+        )
+        .order_by(AuditLog.created_at.asc())
+        .limit(100)
+        .all()
+    )
+    for a in audit_rows:
+        events.append({
+            "type": "audit",
+            "date": a.created_at.isoformat() if a.created_at else None,
+            "label": f"在庫変動: {a.action} — {a.detail or ''}",
+            "detail": {"action": a.action, "detail": a.detail},
+        })
+
+    # 日付順にソート（Noneは末尾）
+    events.sort(key=lambda e: e["date"] or "9999")
+
+    return {
+        "location_id": location_id,
+        "location_name": location.name,
+        "product_id": product_id,
+        "product_name": product.name,
+        "current_stock": int(current_total),
+        "safety_stock": safety_stock,
+        "events": events,
+    }
