@@ -226,7 +226,8 @@ export default function InventoryPage() {
 
   const InventoryTable = ({ groups, readonly }: { groups: LotGroup[]; readonly?: boolean }) => (
     <div className={`bg-gray-900 border rounded-xl overflow-hidden ${readonly ? "border-gray-700/50" : "border-gray-800"}`}>
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px] text-sm">
         <thead>
           <tr className="border-b border-gray-800">
             <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">拠点</th>
@@ -302,6 +303,7 @@ export default function InventoryPage() {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 

@@ -132,7 +132,42 @@ export default function DeliveryPage() {
         ))}
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      {/* モバイル: カードビュー */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <p className="py-8 text-center text-gray-400 text-sm">読み込み中...</p>
+        ) : filtered.length === 0 ? (
+          <p className="py-8 text-center text-gray-500 text-sm">配送データがありません</p>
+        ) : filtered.map((r) => (
+          <div key={r.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <p className="font-mono text-xs text-gray-400">{r.delivery_code}</p>
+                <p className="text-sm font-medium text-gray-100 mt-0.5">{r.product.name}</p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <StatusBadge status={r.status} />
+                {r.delay_reason && <span className="text-xs text-red-400" title={r.delay_reason}>⚠</span>}
+              </div>
+            </div>
+            <div className="text-xs text-gray-500 space-y-1 mb-3">
+              <p>{r.from_location.name} → {r.to_location.name}</p>
+              <p>数量: <span className="text-gray-300 font-medium">{r.quantity.toLocaleString()}</span>　到着予定: <span className={r.status === "delayed" ? "text-red-400 font-medium" : "text-gray-300"}>{r.expected_arrival_date}</span></p>
+            </div>
+            <div className="flex gap-2">
+              {(STATUS_TRANSITIONS[r.status] ?? []).map((t) => (
+                <button key={t.next} onClick={() => openUpdate(r, t.next)}
+                  className="flex-1 py-2 text-xs text-center bg-gray-800 hover:bg-gray-700 text-teal-400 rounded-lg transition-colors">
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* デスクトップ: テーブルビュー */}
+      <div className="hidden md:block bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800">
