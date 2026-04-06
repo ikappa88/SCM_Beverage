@@ -6,12 +6,12 @@ import OperatorLayout from "@/components/operator/OperatorLayout";
 import { apiFetch, getAuthUser } from "@/lib/auth";
 
 interface Alert {
-  inventory_id: number;
-  location_name: string;
-  product_name: string;
-  quantity: number;
-  safety_stock: number;
-  alert_level: string;
+  id: number;
+  severity: string;
+  title: string;
+  status: string;
+  location: { id: number; name: string };
+  product: { id: number; name: string } | null;
 }
 
 interface Inventory {
@@ -55,7 +55,7 @@ export default function OperatorDashboard() {
 
     const fetchData = async () => {
       const [alertRes, invRes, dlvRes] = await Promise.all([
-        apiFetch("/api/inventory/alerts"),
+        apiFetch("/api/alerts/?status=open"),
         apiFetch("/api/inventory/"),
         apiFetch("/api/deliveries/?status=in_transit&limit=20"),
       ]);
@@ -72,8 +72,8 @@ export default function OperatorDashboard() {
   }, []);
 
   const totalStock = inventories.reduce((s, i) => s + i.quantity, 0);
-  const dangerCount = alerts.filter((a) => a.alert_level === "danger").length;
-  const warningCount = alerts.filter((a) => a.alert_level === "warning").length;
+  const dangerCount = alerts.filter((a) => a.severity === "danger").length;
+  const warningCount = alerts.filter((a) => a.severity === "warning").length;
 
   // 今日到着予定の配送
   const today = new Date().toISOString().slice(0, 10);
@@ -167,18 +167,18 @@ export default function OperatorDashboard() {
           ) : (
             <div className="space-y-2">
               {alerts.slice(0, 5).map((alert) => (
-                <div key={alert.inventory_id}
+                <div key={alert.id}
                   className={`flex items-center justify-between p-2.5 rounded-lg border ${
-                    alert.alert_level === "danger"
+                    alert.severity === "danger"
                       ? "border-red-900 bg-red-950/30"
                       : "border-amber-900 bg-amber-950/30"
                   }`}>
                   <div>
-                    <div className="text-xs font-medium">{alert.product_name}</div>
-                    <div className="text-xs text-gray-400">{alert.location_name}</div>
+                    <div className="text-xs font-medium">{alert.product?.name ?? alert.title}</div>
+                    <div className="text-xs text-gray-400">{alert.location.name}</div>
                   </div>
-                  <div className={`text-xs font-semibold ${alert.alert_level === "danger" ? "text-red-400" : "text-amber-400"}`}>
-                    {alert.quantity.toLocaleString()}
+                  <div className={`text-xs font-semibold ${alert.severity === "danger" ? "text-red-400" : "text-amber-400"}`}>
+                    {alert.severity === "danger" ? "緊急" : "警告"}
                   </div>
                 </div>
               ))}
