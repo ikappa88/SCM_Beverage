@@ -145,30 +145,50 @@ export default function UploadPage() {
           <h1 className="text-xl font-semibold">データアップロード</h1>
           <p className="text-sm text-gray-400 mt-0.5">CSVファイルによる在庫データの一括更新</p>
         </div>
-        <a
-          href={`${API_BASE}/api/templates/inventory/download`}
-          download="inventory_template.csv"
-          className="flex items-center gap-2 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors"
-          onClick={(e) => {
-            // 認証ヘッダーが必要なため apiFetch で取得してからダウンロード
-            e.preventDefault();
-            const user = getAuthUser();
-            fetch(`${API_BASE}/api/templates/inventory/download`, {
-              headers: { Authorization: `Bearer ${user?.access_token}` },
-            })
-              .then((r) => r.blob())
-              .then((blob) => {
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "inventory_template.csv";
-                a.click();
-                URL.revokeObjectURL(url);
-              });
-          }}
-        >
-          ⬇ テンプレートをダウンロード
-        </a>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="flex items-center gap-2 px-3 py-1.5 text-xs text-green-400 border border-green-800 rounded-lg hover:bg-green-950 transition-colors"
+            onClick={() => {
+              const user = getAuthUser();
+              fetch(`${API_BASE}/api/inventory/export/csv`, {
+                headers: { Authorization: `Bearer ${user?.access_token}` },
+              })
+                .then((r) => r.blob())
+                .then((blob) => {
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `inventory_${new Date().toISOString().slice(0, 10)}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                });
+            }}
+          >
+            ⬇ 現在在庫CSVをダウンロード
+          </button>
+          <button
+            type="button"
+            className="flex items-center gap-2 px-3 py-1.5 text-xs text-teal-400 border border-teal-800 rounded-lg hover:bg-teal-950 transition-colors"
+            onClick={() => {
+              const user = getAuthUser();
+              fetch(`${API_BASE}/api/templates/inventory/download`, {
+                headers: { Authorization: `Bearer ${user?.access_token}` },
+              })
+                .then((r) => r.blob())
+                .then((blob) => {
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "inventory_template.csv";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                });
+            }}
+          >
+            ⬇ 空テンプレートをダウンロード
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 mb-6 text-xs">

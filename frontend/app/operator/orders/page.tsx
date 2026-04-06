@@ -57,6 +57,7 @@ const EMPTY_FORM = {
   requested_date: new Date().toISOString().split("T")[0],
   expected_delivery_date: "",
   note: "",
+  linked_alert_id: "",
 };
 
 export default function OrdersPage() {
@@ -131,9 +132,15 @@ export default function OrdersPage() {
   // URLパラメータからフォーム初期値をセット（アラートクイックリンクから遷移時）
   useEffect(() => {
     if (searchParams.get("new") === "1") {
-      const toLocId = searchParams.get("to_location_id") ?? "";
-      const prodId  = searchParams.get("from_product_id") ?? "";
-      setForm((f) => ({ ...f, to_location_id: toLocId, product_id: prodId }));
+      const toLocId    = searchParams.get("to_location_id") ?? "";
+      const prodId     = searchParams.get("from_product_id") ?? "";
+      const alertId    = searchParams.get("linked_alert_id") ?? "";
+      setForm((f) => ({
+        ...f,
+        to_location_id: toLocId,
+        product_id: prodId,
+        linked_alert_id: alertId,
+      }));
       setStep("input");
     }
   }, [searchParams]);
@@ -284,6 +291,7 @@ export default function OrdersPage() {
         requested_date: form.requested_date,
         expected_delivery_date: preview.expected_delivery_date || null,
         note: form.note || null,
+        linked_alert_id: form.linked_alert_id ? Number(form.linked_alert_id) : null,
       };
       const res = await apiFetch("/api/orders/", { method: "POST", body: JSON.stringify(body) });
       const data = await res.json();

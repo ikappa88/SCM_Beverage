@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.models.alert import Alert, AlertSeverity, AlertStatus, AlertType
 from app.models.alert_setting import AlertSetting
-from app.models.audit_log import AuditAction
+from app.models.audit_log import AuditAction, AuditLog
 from app.models.inventory import Inventory
+from app.models.order import Order
 from app.models.user import User, UserRole
 from app.schemas.alert import AlertResponse, AlertSnoozeUpdate, AlertStatusUpdate
 from app.schemas.alert_setting import AlertSettingResponse, AlertSettingUpdate
@@ -268,6 +269,65 @@ def list_alert_settings(
 ):
     """アラートしきい値設定一覧（管理者のみ）"""
     return db.query(AlertSetting).order_by(AlertSetting.setting_key).all()
+
+
+@router.get("/{alert_id}/actions")
+def get_alert_actions(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    アラートに紐付いた対応アクション一覧を返す（P1-005）。
+    - linked_alert_id で紐付いた発注一覧
+    - 同拠点・同商品の監査ログ（アラート発生後のもの）
+    """
+    from typing import Any
+    alert = _load_alert(db, alert_id)
+
+    # 紐付き発注
+    linked_orders = (
+        db.query(Order)
+        .filter(Order.linked_alert_id == alert_id)
+        .order_by(Order.created_at.desc())
+        .all()
+    )
+    orders_data: list[dict[str, Any]] = []
+    for o in linked_orders:
+        orders_data.append({
+            "order_code": o.order_code,
+            "order_type": o.order_type,
+            "status": o.status,
+            "quantity": o.quantity,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        })
+
+    # 同拠点の監査ログ（アラート作成以降）
+    audit_rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.location_id == alert.location_id,
+            AuditLog.created_at >= alert.created_at,
+        )
+        .order_by(AuditLog.created_at.asc())
+        .limit(20)
+        .all()
+    )
+    audit_data = [
+        {
+            "action": a.action,
+            "resource": a.resource,
+            "detail": a.detail,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in audit_rows
+    ]
+
+    return {
+        "alert_id": alert_id,
+        "linked_orders": orders_data,
+        "audit_logs": audit_data,
+    }
 
 
 @router.patch("/settings/{setting_key}", response_model=AlertSettingResponse)

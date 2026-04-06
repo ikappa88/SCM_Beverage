@@ -190,7 +190,7 @@ export default function AlertsPage() {
       case "low_stock":
         return [
           { label: "在庫確認",   path: `/operator/inventory${locParam}${prodParam}` },
-          { label: "発注を作成", path: `/operator/orders?new=1&from_product_id=${a.product_id ?? ""}&to_location_id=${a.location_id}` },
+          { label: "発注を作成", path: `/operator/orders?new=1&from_product_id=${a.product_id ?? ""}&to_location_id=${a.location_id}&linked_alert_id=${a.id}` },
         ];
       case "overstock":
         return [{ label: "在庫確認", path: `/operator/inventory${locParam}${prodParam}` }];

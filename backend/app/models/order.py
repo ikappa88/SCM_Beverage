@@ -63,6 +63,9 @@ class Order(Base, TimestampMixin):
         Date, nullable=True, comment="実納期"
     )
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    linked_alert_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True, comment="対応元アラートID"
+    )
     created_by: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, comment="作成者ID"
     )
@@ -75,6 +78,7 @@ class Order(Base, TimestampMixin):
     product = relationship("Product", foreign_keys=[product_id])
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
+    linked_alert = relationship("Alert", foreign_keys=[linked_alert_id], back_populates="linked_orders")
 
     def __repr__(self) -> str:
         return f"<Order code={self.order_code} status={self.status}>"
