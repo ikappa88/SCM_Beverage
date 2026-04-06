@@ -34,6 +34,10 @@ class OrderStatusUpdate(BaseModel):
     note: Optional[str] = None
 
 
+class OrderApprovalReject(BaseModel):
+    rejection_reason: Optional[str] = None
+
+
 class OrderPreviewResponse(BaseModel):
     is_valid: bool
     errors: list[str]
@@ -63,6 +67,7 @@ class OrderResponse(BaseModel):
     expected_delivery_date: Optional[date]
     actual_delivery_date: Optional[date]
     note: Optional[str]
+    rejection_reason: Optional[str]
     linked_alert_id: Optional[int]
     created_by: int
     updated_by: Optional[int]

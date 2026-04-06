@@ -7,12 +7,13 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.models.alert import Alert, AlertSeverity, AlertStatus, AlertType
+from app.models.alert_comment import AlertComment
 from app.models.alert_setting import AlertSetting
 from app.models.audit_log import AuditAction, AuditLog
 from app.models.inventory import Inventory
 from app.models.order import Order
 from app.models.user import User, UserRole
-from app.schemas.alert import AlertResponse, AlertSnoozeUpdate, AlertStatusUpdate
+from app.schemas.alert import AlertCommentCreate, AlertCommentResponse, AlertResponse, AlertSnoozeUpdate, AlertStatusUpdate
 from app.schemas.alert_setting import AlertSettingResponse, AlertSettingUpdate
 from app.services.audit import record
 from app.services.auth import get_current_user, require_administrator
@@ -328,6 +329,70 @@ def get_alert_actions(
         "linked_orders": orders_data,
         "audit_logs": audit_data,
     }
+
+
+@router.get("/{alert_id}/comments", response_model=list[AlertCommentResponse])
+def list_alert_comments(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """アラートへのコメント一覧を取得する"""
+    alert = _load_alert(db, alert_id)
+    if not check_location_access(current_user, alert.location_id):
+        raise HTTPException(status_code=403, detail="この拠点のアラートを参照する権限がありません")
+
+    comments = (
+        db.query(AlertComment)
+        .filter(AlertComment.alert_id == alert_id)
+        .order_by(AlertComment.created_at.asc())
+        .all()
+    )
+    return [
+        AlertCommentResponse(
+            id=c.id,
+            alert_id=c.alert_id,
+            author_id=c.author_id,
+            author_name=c.author.full_name if c.author else f"user:{c.author_id}",
+            body=c.body,
+            created_at=c.created_at,
+        )
+        for c in comments
+    ]
+
+
+@router.post("/{alert_id}/comments", response_model=AlertCommentResponse)
+def add_alert_comment(
+    alert_id: int,
+    payload: AlertCommentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_administrator),
+):
+    """管理者がアラートにコメントを追加する（管理者のみ）"""
+    alert = _load_alert(db, alert_id)
+
+    comment = AlertComment(
+        alert_id=alert_id,
+        author_id=current_user.id,
+        body=payload.body,
+    )
+    db.add(comment)
+
+    # コメント追加でアラートが「対応中」になっていない場合は in_progress に更新
+    if alert.status == AlertStatus.OPEN:
+        alert.status = AlertStatus.IN_PROGRESS
+
+    db.commit()
+    db.refresh(comment)
+
+    return AlertCommentResponse(
+        id=comment.id,
+        alert_id=comment.alert_id,
+        author_id=comment.author_id,
+        author_name=current_user.full_name,
+        body=comment.body,
+        created_at=comment.created_at,
+    )
 
 
 @router.patch("/settings/{setting_key}", response_model=AlertSettingResponse)

@@ -12,6 +12,22 @@ class AlertStatusUpdate(BaseModel):
     status: AlertStatus
 
 
+class AlertCommentCreate(BaseModel):
+    body: str
+
+
+class AlertCommentResponse(BaseModel):
+    id: int
+    alert_id: int
+    author_id: int
+    author_name: str
+    body: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class AlertSnoozeUpdate(BaseModel):
     snoozed_until: datetime
     snooze_reason: Optional[str] = None

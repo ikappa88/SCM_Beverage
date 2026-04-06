@@ -13,6 +13,7 @@ from app.models.product import Product
 from app.models.route import Route
 from app.models.user import User, UserRole
 from app.schemas.order import (
+    OrderApprovalReject,
     OrderCreate,
     OrderPreviewResponse,
     OrderResponse,
@@ -228,7 +229,7 @@ def create_order(
         product_id=payload.product_id,
         quantity=payload.quantity,
         unit_price=unit_price,
-        status=OrderStatus.CONFIRMED,
+        status=OrderStatus.AWAITING_APPROVAL,
         requested_date=payload.requested_date,
         expected_delivery_date=expected_delivery_date,
         note=payload.note,
@@ -239,9 +240,32 @@ def create_order(
     db.commit()
     db.refresh(order)
 
-    # ── 発注確定後の副作用処理 ──────────────────────────────────────────────────
+    record(
+        db,
+        username=current_user.username,
+        action=AuditAction.CREATE,
+        resource="order",
+        resource_id=str(order.id),
+        detail=f"発注作成（承認待ち）: {order_code} 商品ID={payload.product_id} 数量={payload.quantity}",
+        user_id=current_user.id,
+        location_id=payload.to_location_id,
+    )
+    return _load_order(db, order.id)
 
-    # 配送記録の自動生成（ルートが存在する場合）
+
+def _confirm_order_effects(db: Session, order: Order, current_user_id: int, username: str) -> None:
+    """発注確定後の副作用: 配送記録生成・TRANSFER在庫減算・アラート再評価"""
+    route = (
+        db.query(Route)
+        .filter(
+            Route.origin_id == order.from_location_id,
+            Route.destination_id == order.to_location_id,
+            Route.is_active == True,
+        )
+        .first()
+    )
+
+    # 配送記録の自動生成
     dlv_code = None
     if route is not None:
         today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -265,12 +289,12 @@ def create_order(
             status=DeliveryStatus.SCHEDULED,
             scheduled_departure_date=order.requested_date,
             expected_arrival_date=order.expected_delivery_date or order.requested_date,
-            created_by=current_user.id,
+            created_by=current_user_id,
         ))
 
-    # TRANSFER発注の場合、出荷元の在庫を即時減算してアラートを再評価する
+    # TRANSFER の場合、出荷元の在庫を即時減算
     from_inv_id = None
-    if payload.order_type == OrderType.TRANSFER:
+    if order.order_type == OrderType.TRANSFER:
         from_inv = (
             db.query(Inventory)
             .filter(
@@ -286,35 +310,93 @@ def create_order(
 
     db.commit()
 
-    # ── 監査ログ記録 ──────────────────────────────────────────────────────────
-
-    order = _load_order(db, order.id)
-
-    detail_parts = [f"発注作成: {order_code} 商品ID={payload.product_id} 数量={payload.quantity}"]
+    detail_parts = [f"発注確定: {order.order_code}"]
     if dlv_code:
         detail_parts.append(f"配送記録自動生成: {dlv_code}")
     record(
         db,
-        username=current_user.username,
-        action=AuditAction.CREATE,
+        username=username,
+        action=AuditAction.UPDATE,
         resource="order",
         resource_id=str(order.id),
         detail=" / ".join(detail_parts),
-        user_id=current_user.id,
-        location_id=payload.to_location_id,
+        user_id=current_user_id,
+        location_id=order.to_location_id,
     )
     if from_inv_id is not None:
         record(
             db,
-            username=current_user.username,
+            username=username,
             action=AuditAction.UPDATE,
             resource="inventory",
             resource_id=str(from_inv_id),
-            detail=f"移管発注により在庫自動減算: -{order.quantity} (発注:{order_code})",
-            user_id=current_user.id,
+            detail=f"移管発注により在庫自動減算: -{order.quantity} (発注:{order.order_code})",
+            user_id=current_user_id,
             location_id=order.from_location_id,
         )
-    return order
+
+
+@router.post("/{order_id}/approve", response_model=OrderResponse)
+def approve_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """発注を承認する（管理者のみ）"""
+    if current_user.role != UserRole.ADMINISTRATOR:
+        raise HTTPException(status_code=403, detail="管理者のみ発注を承認できます")
+
+    order = _load_order(db, order_id)
+    if order.status != OrderStatus.AWAITING_APPROVAL:
+        raise HTTPException(
+            status_code=400,
+            detail=f"承認待ち（awaiting_approval）状態の発注のみ承認できます（現在: {order.status}）",
+        )
+
+    order.status = OrderStatus.CONFIRMED
+    order.updated_by = current_user.id
+    db.commit()
+
+    _confirm_order_effects(db, order, current_user.id, current_user.username)
+
+    return _load_order(db, order_id)
+
+
+@router.post("/{order_id}/reject", response_model=OrderResponse)
+def reject_order(
+    order_id: int,
+    payload: OrderApprovalReject,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """発注を却下する（管理者のみ）"""
+    if current_user.role != UserRole.ADMINISTRATOR:
+        raise HTTPException(status_code=403, detail="管理者のみ発注を却下できます")
+
+    order = _load_order(db, order_id)
+    if order.status != OrderStatus.AWAITING_APPROVAL:
+        raise HTTPException(
+            status_code=400,
+            detail=f"承認待ち（awaiting_approval）状態の発注のみ却下できます（現在: {order.status}）",
+        )
+
+    order.status = OrderStatus.CANCELLED
+    order.rejection_reason = payload.rejection_reason
+    order.updated_by = current_user.id
+    db.commit()
+    db.refresh(order)
+
+    record(
+        db,
+        username=current_user.username,
+        action=AuditAction.UPDATE,
+        resource="order",
+        resource_id=str(order_id),
+        detail=f"発注却下: {order.order_code} 理由={payload.rejection_reason or '理由なし'}",
+        user_id=current_user.id,
+        location_id=order.to_location_id,
+    )
+    return _load_order(db, order_id)
 
 
 @router.patch("/{order_id}/status", response_model=OrderResponse)

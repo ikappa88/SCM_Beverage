@@ -4,7 +4,8 @@ import { useSearchParams } from "next/navigation";
 import OperatorLayout from "@/components/operator/OperatorLayout";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { apiFetch, getAuthUser } from "@/lib/auth";
+import { apiFetch, getAuthUser, isAdministrator } from "@/lib/auth";
+import SearchableSelect from "@/components/common/SearchableSelect";
 import { downloadCsv } from "@/lib/csv";
 
 interface Location { id: number; name: string; code: string; location_type: string; is_active: boolean }
@@ -39,6 +40,7 @@ type int = number;
 
 const TABS = [
   { label: "すべて",       value: "" },
+  { label: "承認待ち",     value: "awaiting_approval" },
   { label: "処理中",       value: "confirmed,in_transit" },
   { label: "完了",         value: "delivered" },
   { label: "キャンセル",   value: "cancelled" },
@@ -85,6 +87,12 @@ export default function OrdersPage() {
   // ステータス更新
   const [confirm, setConfirm] = useState<{ order: Order; newStatus: string } | null>(null);
 
+  // 承認ワークフロー
+  const isAdmin = isAdministrator();
+  const [rejectTarget, setRejectTarget] = useState<Order | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [approving, setApproving] = useState<number | null>(null);
+
   // ログインユーザーの担当拠点IDリスト（operator の補充先絞り込みに使用）
   const [assignedLocationIds, setAssignedLocationIds] = useState<number[]>([]);
 
@@ -93,6 +101,44 @@ export default function OrdersPage() {
     const data = await res.json();
     setOrders(Array.isArray(data) ? data : []);
     setLoading(false);
+  };
+
+  const approveOrder = async (orderId: number) => {
+    setApproving(orderId);
+    setError("");
+    try {
+      const res = await apiFetch(`/api/orders/${orderId}/approve`, { method: "POST" });
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.detail || "承認に失敗しました");
+        return;
+      }
+      fetchOrders();
+    } finally {
+      setApproving(null);
+    }
+  };
+
+  const rejectOrder = async () => {
+    if (!rejectTarget) return;
+    setApproving(rejectTarget.id);
+    setError("");
+    try {
+      const res = await apiFetch(`/api/orders/${rejectTarget.id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ rejection_reason: rejectReason || null }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.detail || "却下に失敗しました");
+        return;
+      }
+      setRejectTarget(null);
+      setRejectReason("");
+      fetchOrders();
+    } finally {
+      setApproving(null);
+    }
   };
   const fetchMasters = async () => {
     const [locRes, prodRes] = await Promise.all([
@@ -377,7 +423,8 @@ export default function OrdersPage() {
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b border-gray-800">
               <th className="text-left py-2.5 px-4 text-xs text-gray-400 font-medium">発注コード</th>
@@ -405,19 +452,47 @@ export default function OrdersPage() {
                 <td className="py-2.5 px-4"><StatusBadge status={o.status} /></td>
                 <td className="py-2.5 px-4 text-gray-400 text-xs">{o.expected_delivery_date ?? "-"}</td>
                 <td className="py-2.5 px-4">
-                  {o.status === "in_transit" && (
-                    <button
-                      onClick={() => setConfirm({ order: o, newStatus: "delivered" })}
-                      className="text-xs text-teal-400 hover:text-teal-300 transition-colors"
-                    >
-                      入荷確認
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {o.status === "in_transit" && (
+                      <button
+                        onClick={() => setConfirm({ order: o, newStatus: "delivered" })}
+                        className="text-xs text-teal-400 hover:text-teal-300 transition-colors"
+                      >
+                        入荷確認
+                      </button>
+                    )}
+                    {/* 管理者: 承認待ち発注の承認・却下ボタン */}
+                    {isAdmin && o.status === "awaiting_approval" && (
+                      <>
+                        <button
+                          onClick={() => approveOrder(o.id)}
+                          disabled={approving === o.id}
+                          className="text-xs text-green-400 hover:text-green-300 border border-green-800/60 px-2 py-0.5 rounded disabled:opacity-50 transition-colors"
+                        >
+                          承認
+                        </button>
+                        <button
+                          onClick={() => { setRejectTarget(o); setRejectReason(""); }}
+                          disabled={approving === o.id}
+                          className="text-xs text-red-400 hover:text-red-300 border border-red-800/60 px-2 py-0.5 rounded disabled:opacity-50 transition-colors"
+                        >
+                          却下
+                        </button>
+                      </>
+                    )}
+                    {/* 却下理由の表示 */}
+                    {o.status === "cancelled" && (o as Order & { rejection_reason?: string }).rejection_reason && (
+                      <span className="text-xs text-red-400/70" title={(o as Order & { rejection_reason?: string }).rejection_reason}>
+                        却下済
+                      </span>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* STEP1: 入力モーダル */}
@@ -439,44 +514,39 @@ export default function OrdersPage() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">補充元拠点</label>
-                  <select value={form.from_location_id} onChange={(e) => handleFormChange({ from_location_id: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500">
-                    <option value="">選択...</option>
-                    {locations.filter(l => l.is_active).map((l) => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    options={locations.filter(l => l.is_active).map(l => ({
+                      value: l.id, label: l.name, sublabel: l.code,
+                    }))}
+                    value={form.from_location_id}
+                    onChange={(v) => handleFormChange({ from_location_id: v })}
+                    placeholder="拠点名で検索..."
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">補充先拠点</label>
-                  {assignedLocationIds.length > 0 ? (
-                    <select value={form.to_location_id} onChange={(e) => handleFormChange({ to_location_id: e.target.value })}
-                      className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500">
-                      <option value="">選択...</option>
-                      {locations.filter(l => l.is_active && assignedLocationIds.includes(l.id)).map((l) => (
-                        <option key={l.id} value={l.id}>{l.name}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    // 管理者など assigned_location_ids が空の場合は全拠点表示
-                    <select value={form.to_location_id} onChange={(e) => handleFormChange({ to_location_id: e.target.value })}
-                      className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500">
-                      <option value="">選択...</option>
-                      {locations.filter(l => l.is_active).map((l) => (
-                        <option key={l.id} value={l.id}>{l.name}</option>
-                      ))}
-                    </select>
-                  )}
+                  <SearchableSelect
+                    options={(assignedLocationIds.length > 0
+                      ? locations.filter(l => l.is_active && assignedLocationIds.includes(l.id))
+                      : locations.filter(l => l.is_active)
+                    ).map(l => ({ value: l.id, label: l.name, sublabel: l.code }))}
+                    value={form.to_location_id}
+                    onChange={(v) => handleFormChange({ to_location_id: v })}
+                    placeholder="拠点名で検索..."
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">商品</label>
-                  <select value={form.product_id} onChange={(e) => handleFormChange({ product_id: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500">
-                    <option value="">選択...</option>
-                    {products.filter(p => p.is_active).map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}（最小単位: {p.min_order_qty}）</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    options={products.filter(p => p.is_active).map(p => ({
+                      value: p.id,
+                      label: p.name,
+                      sublabel: `${p.code} / 最小単位:${p.min_order_qty}`,
+                    }))}
+                    value={form.product_id}
+                    onChange={(v) => handleFormChange({ product_id: v })}
+                    placeholder="商品名で検索..."
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -690,6 +760,41 @@ export default function OrdersPage() {
           onConfirm={() => handleStatusUpdate(confirm.order, confirm.newStatus)}
           onCancel={() => setConfirm(null)}
         />
+      )}
+
+      {/* 却下モーダル */}
+      {rejectTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-sm">
+            <h3 className="text-base font-semibold mb-1">発注を却下</h3>
+            <p className="text-xs text-gray-400 mb-4">{rejectTarget.order_code} — {rejectTarget.product.name}</p>
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-1">却下理由（任意）</label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="例：数量過多のため減数のうえ再申請してください"
+                className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-red-500 resize-none"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setRejectTarget(null)}
+                className="px-4 py-2 text-sm text-gray-400 border border-gray-700 rounded-lg hover:border-gray-500 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={rejectOrder}
+                disabled={approving === rejectTarget.id}
+                className="px-4 py-2 text-sm bg-red-700 hover:bg-red-600 text-white rounded-lg disabled:opacity-50 transition-colors"
+              >
+                却下する
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </OperatorLayout>
   );

@@ -17,6 +17,7 @@ class OrderType(str, enum.Enum):
 
 class OrderStatus(str, enum.Enum):
     DRAFT = "draft"
+    AWAITING_APPROVAL = "awaiting_approval"
     CONFIRMED = "confirmed"
     IN_TRANSIT = "in_transit"
     DELIVERED = "delivered"
@@ -63,6 +64,9 @@ class Order(Base, TimestampMixin):
         Date, nullable=True, comment="実納期"
     )
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="却下理由（管理者が記入）"
+    )
     linked_alert_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True, comment="対応元アラートID"
     )

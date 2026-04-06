@@ -2,8 +2,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import OperatorLayout from "@/components/operator/OperatorLayout";
-import { apiFetch } from "@/lib/auth";
+import { apiFetch, isAdministrator } from "@/lib/auth";
 import { downloadCsv } from "@/lib/csv";
+
+interface AlertComment {
+  id: number;
+  alert_id: number;
+  author_id: number;
+  author_name: string;
+  body: string;
+  created_at: string;
+}
 
 interface Alert {
   id: number;
@@ -110,6 +119,48 @@ export default function AlertsPage() {
   const [snoozeReason, setSnoozeReason] = useState("");
   const [snoozeSubmitting, setSnoozeSubmitting] = useState(false);
 
+  // コメント
+  const isAdmin = isAdministrator();
+  const [commentOpen, setCommentOpen] = useState<number | null>(null); // alert.id
+  const [comments, setComments] = useState<Record<number, AlertComment[]>>({});
+  const [commentText, setCommentText] = useState("");
+  const [commentLoading, setCommentLoading] = useState(false);
+
+  const fetchComments = async (alertId: number) => {
+    const res = await apiFetch(`/api/alerts/${alertId}/comments`);
+    if (res.ok) {
+      const data = await res.json();
+      setComments((prev) => ({ ...prev, [alertId]: data }));
+    }
+  };
+
+  const handleOpenComments = (alertId: number) => {
+    if (commentOpen === alertId) {
+      setCommentOpen(null);
+      return;
+    }
+    setCommentOpen(alertId);
+    fetchComments(alertId);
+  };
+
+  const submitComment = async (alertId: number) => {
+    if (!commentText.trim()) return;
+    setCommentLoading(true);
+    try {
+      const res = await apiFetch(`/api/alerts/${alertId}/comments`, {
+        method: "POST",
+        body: JSON.stringify({ body: commentText.trim() }),
+      });
+      if (res.ok) {
+        setCommentText("");
+        fetchComments(alertId);
+        fetchData(true);
+      }
+    } finally {
+      setCommentLoading(false);
+    }
+  };
+
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -215,7 +266,7 @@ export default function AlertsPage() {
 
   return (
     <OperatorLayout>
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex items-start justify-between mb-4 sm:mb-6">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2">
             アラート管理
@@ -251,7 +302,7 @@ export default function AlertsPage() {
         </div>
       )}
 
-      <div className="flex gap-1 mb-5">
+      <div className="flex flex-wrap gap-1 mb-4 sm:mb-5">
         {TABS.map((t) => (
           <button
             key={t.value}
@@ -289,74 +340,124 @@ export default function AlertsPage() {
                   const isActive = a.status !== "resolved";
                   const snoozed = isSnoozed(a);
                   return (
-                    <div
-                      key={a.id}
-                      className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-800/20 transition-colors ${snoozed ? "opacity-50" : ""}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">
-                            {TYPE_LABEL[a.alert_type] ?? a.alert_type}
-                          </span>
-                          <span className="text-sm text-gray-200 font-medium">{a.title}</span>
-                          {snoozed && (
-                            <span className="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-1.5 py-0.5 rounded">
-                              💤 {new Date(a.snoozed_until!).toLocaleDateString("ja-JP")}まで
+                    <div key={a.id}>
+                      <div
+                        className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-800/20 transition-colors ${snoozed ? "opacity-50" : ""}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">
+                              {TYPE_LABEL[a.alert_type] ?? a.alert_type}
                             </span>
+                            <span className="text-sm text-gray-200 font-medium">{a.title}</span>
+                            {snoozed && (
+                              <span className="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-1.5 py-0.5 rounded">
+                                💤 {new Date(a.snoozed_until!).toLocaleDateString("ja-JP")}まで
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1 leading-relaxed">{a.message}</p>
+                          <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-600">
+                            <span>{a.location.name}</span>
+                            {a.product && <span>{a.product.name}</span>}
+                            <span>{new Date(a.created_at).toLocaleString("ja-JP")}</span>
+                            {a.status === "in_progress" && <span className="text-amber-500">対応中</span>}
+                            {a.status === "resolved" && <span className="text-green-600">解決済</span>}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0 pt-0.5 flex-wrap justify-end">
+                          {/* クイックアクションボタン（在庫確認・発注作成・配送追跡） */}
+                          {isActive && !snoozed && actions.map((action) => (
+                            <button
+                              key={action.label}
+                              onClick={() => router.push(action.path)}
+                              className="text-xs text-teal-400 hover:text-teal-300 border border-teal-800/60 px-2 py-1 rounded transition-colors"
+                            >
+                              {action.label} →
+                            </button>
+                          ))}
+
+                          {isActive && !snoozed && a.status === "open" && (
+                            <button
+                              onClick={() => updateStatus(a.id, "in_progress")}
+                              disabled={updating === a.id}
+                              className="text-xs text-amber-400 hover:text-amber-300 disabled:opacity-50 transition-colors"
+                            >
+                              対応中
+                            </button>
+                          )}
+                          {isActive && !snoozed && (
+                            <button
+                              onClick={() => updateStatus(a.id, "resolved")}
+                              disabled={updating === a.id}
+                              className="text-xs text-gray-400 hover:text-green-400 disabled:opacity-50 transition-colors"
+                            >
+                              クローズ
+                            </button>
+                          )}
+
+                          {/* スヌーズボタン */}
+                          {isActive && (
+                            <button
+                              onClick={() => { setSnoozeTarget(a); setSnoozeReason(a.snooze_reason ?? ""); }}
+                              title="スヌーズ（一時的に通知を停止）"
+                              className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-1"
+                            >
+                              💤
+                            </button>
+                          )}
+
+                          {/* コメントボタン */}
+                          <button
+                            onClick={() => handleOpenComments(a.id)}
+                            title="コメントを表示"
+                            className={`text-xs px-1.5 py-0.5 rounded transition-colors ${commentOpen === a.id ? "text-blue-400 bg-blue-950/40" : "text-gray-500 hover:text-gray-300"}`}
+                          >
+                            💬
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* コメントスレッド */}
+                      {commentOpen === a.id && (
+                        <div className="mx-4 mb-3 border border-gray-700/50 rounded-lg bg-gray-900/50 p-3">
+                          <p className="text-xs text-gray-400 font-medium mb-2">コメント</p>
+                          {(comments[a.id] ?? []).length === 0 ? (
+                            <p className="text-xs text-gray-600 mb-2">コメントはまだありません</p>
+                          ) : (
+                            <div className="space-y-2 mb-3">
+                              {(comments[a.id] ?? []).map((c) => (
+                                <div key={c.id} className="text-xs bg-gray-800/60 rounded-lg px-3 py-2">
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <span className="text-blue-400 font-medium">{c.author_name}</span>
+                                    <span className="text-gray-600">{new Date(c.created_at).toLocaleString("ja-JP")}</span>
+                                  </div>
+                                  <p className="text-gray-300 whitespace-pre-wrap">{c.body}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {isAdmin && (
+                            <div className="flex gap-2">
+                              <input
+                                value={commentText}
+                                onChange={(e) => setCommentText(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComment(a.id); } }}
+                                placeholder="管理者コメントを入力..."
+                                className="flex-1 bg-gray-800 border border-gray-700 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                              />
+                              <button
+                                onClick={() => submitComment(a.id)}
+                                disabled={commentLoading || !commentText.trim()}
+                                className="px-3 py-1.5 text-xs bg-blue-700 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50 transition-colors"
+                              >
+                                送信
+                              </button>
+                            </div>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{a.message}</p>
-                        <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-600">
-                          <span>{a.location.name}</span>
-                          {a.product && <span>{a.product.name}</span>}
-                          <span>{new Date(a.created_at).toLocaleString("ja-JP")}</span>
-                          {a.status === "in_progress" && <span className="text-amber-500">対応中</span>}
-                          {a.status === "resolved" && <span className="text-green-600">解決済</span>}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0 pt-0.5 flex-wrap justify-end">
-                        {/* クイックアクションボタン（在庫確認・発注作成・配送追跡） */}
-                        {isActive && !snoozed && actions.map((action) => (
-                          <button
-                            key={action.label}
-                            onClick={() => router.push(action.path)}
-                            className="text-xs text-teal-400 hover:text-teal-300 border border-teal-800/60 px-2 py-1 rounded transition-colors"
-                          >
-                            {action.label} →
-                          </button>
-                        ))}
-
-                        {isActive && !snoozed && a.status === "open" && (
-                          <button
-                            onClick={() => updateStatus(a.id, "in_progress")}
-                            disabled={updating === a.id}
-                            className="text-xs text-amber-400 hover:text-amber-300 disabled:opacity-50 transition-colors"
-                          >
-                            対応中
-                          </button>
-                        )}
-                        {isActive && !snoozed && (
-                          <button
-                            onClick={() => updateStatus(a.id, "resolved")}
-                            disabled={updating === a.id}
-                            className="text-xs text-gray-400 hover:text-green-400 disabled:opacity-50 transition-colors"
-                          >
-                            クローズ
-                          </button>
-                        )}
-
-                        {/* スヌーズボタン */}
-                        {isActive && (
-                          <button
-                            onClick={() => { setSnoozeTarget(a); setSnoozeReason(a.snooze_reason ?? ""); }}
-                            title="スヌーズ（一時的に通知を停止）"
-                            className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-1"
-                          >
-                            💤
-                          </button>
-                        )}
-                      </div>
+                      )}
                     </div>
                   );
                 })}

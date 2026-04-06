@@ -77,6 +77,7 @@ class Alert(Base, TimestampMixin):
     product = relationship("Product", foreign_keys=[product_id])
     resolver = relationship("User", foreign_keys=[resolved_by])
     linked_orders = relationship("Order", foreign_keys="Order.linked_alert_id", back_populates="linked_alert")
+    comments = relationship("AlertComment", back_populates="alert")
 
     def __repr__(self) -> str:
         return f"<Alert type={self.alert_type} severity={self.severity} status={self.status}>"
