@@ -1,8 +1,10 @@
 ﻿"use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import OperatorLayout from "@/components/operator/OperatorLayout";
-import { API_BASE, getAuthUser } from "@/lib/auth";
+import { API_BASE, apiFetch, getAuthUser } from "@/lib/auth";
+
+interface MasterItem { code: string; name: string }
 
 interface PreviewRow {
   row: number;
@@ -36,6 +38,31 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
+
+  // マスタ参照パネル
+  const [showProducts, setShowProducts] = useState(false);
+  const [showLocations, setShowLocations] = useState(false);
+  const [products, setProducts] = useState<MasterItem[]>([]);
+  const [locations, setLocations] = useState<MasterItem[]>([]);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch("/api/products").then((r) => r.json()).then((d) => {
+      const items = Array.isArray(d) ? d : (d.items ?? []);
+      setProducts(items.map((p: { code: string; name: string }) => ({ code: p.code, name: p.name })));
+    }).catch(() => {});
+    apiFetch("/api/locations").then((r) => r.json()).then((d) => {
+      const items = Array.isArray(d) ? d : (d.items ?? []);
+      setLocations(items.map((l: { code: string; name: string }) => ({ code: l.code, name: l.name })));
+    }).catch(() => {});
+  }, []);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(text);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -165,6 +192,97 @@ export default function UploadPage() {
 
       {step === "select" && (
         <div className="space-y-4">
+          {/* マスタ参照パネル */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <h2 className="text-sm font-medium mb-3">コード参照</h2>
+            <div className="space-y-2">
+              {/* 商品コード */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowProducts((v) => !v)}
+                  className="flex items-center gap-2 text-xs text-teal-400 hover:text-teal-300 transition-colors"
+                >
+                  <span className={`transition-transform ${showProducts ? "rotate-90" : ""}`}>▶</span>
+                  商品コード一覧を{showProducts ? "閉じる" : "表示する"}（{products.length}件）
+                </button>
+                {showProducts && (
+                  <div className="mt-2 max-h-40 overflow-y-auto bg-gray-800 rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-gray-700">
+                        <tr>
+                          <th className="text-left px-3 py-1.5 text-gray-300 font-medium">コード</th>
+                          <th className="text-left px-3 py-1.5 text-gray-300 font-medium">商品名</th>
+                          <th className="w-16"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {products.map((p) => (
+                          <tr key={p.code} className="hover:bg-gray-750">
+                            <td className="px-3 py-1.5 font-mono text-gray-200">{p.code}</td>
+                            <td className="px-3 py-1.5 text-gray-400">{p.name}</td>
+                            <td className="px-3 py-1.5">
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(p.code)}
+                                className="text-gray-500 hover:text-teal-400 transition-colors"
+                                title="コードをコピー"
+                              >
+                                {copied === p.code ? "✓" : "📋"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              {/* 拠点コード */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowLocations((v) => !v)}
+                  className="flex items-center gap-2 text-xs text-teal-400 hover:text-teal-300 transition-colors"
+                >
+                  <span className={`transition-transform ${showLocations ? "rotate-90" : ""}`}>▶</span>
+                  拠点コード一覧を{showLocations ? "閉じる" : "表示する"}（{locations.length}件）
+                </button>
+                {showLocations && (
+                  <div className="mt-2 max-h-40 overflow-y-auto bg-gray-800 rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-gray-700">
+                        <tr>
+                          <th className="text-left px-3 py-1.5 text-gray-300 font-medium">コード</th>
+                          <th className="text-left px-3 py-1.5 text-gray-300 font-medium">拠点名</th>
+                          <th className="w-16"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {locations.map((l) => (
+                          <tr key={l.code} className="hover:bg-gray-750">
+                            <td className="px-3 py-1.5 font-mono text-gray-200">{l.code}</td>
+                            <td className="px-3 py-1.5 text-gray-400">{l.name}</td>
+                            <td className="px-3 py-1.5">
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(l.code)}
+                                className="text-gray-500 hover:text-teal-400 transition-colors"
+                                title="コードをコピー"
+                              >
+                                {copied === l.code ? "✓" : "📋"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
             <h2 className="text-sm font-medium mb-4">CSVフォーマット</h2>
             <div className="bg-gray-800 rounded-lg p-3 font-mono text-xs text-gray-300 mb-4">

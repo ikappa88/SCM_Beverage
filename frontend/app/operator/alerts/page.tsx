@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import OperatorLayout from "@/components/operator/OperatorLayout";
 import { apiFetch } from "@/lib/auth";
 import { downloadCsv } from "@/lib/csv";
@@ -94,9 +94,13 @@ function isSnoozed(alert: Alert): boolean {
 
 export default function AlertsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("open");
+  const initTab = searchParams.get("status") ?? "open";
+  const initSeverity = searchParams.get("severity") ?? "";
+  const [tab, setTab] = useState(initTab);
+  const [severityFilter, setSeverityFilter] = useState(initSeverity);
   const [updating, setUpdating] = useState<number | null>(null);
   const [error, setError] = useState("");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -109,7 +113,10 @@ export default function AlertsPage() {
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const params = tab ? `?status=${tab}` : "";
+      const qs = new URLSearchParams();
+      if (tab) qs.set("status", tab);
+      if (severityFilter) qs.set("severity", severityFilter);
+      const params = qs.toString() ? `?${qs}` : "";
       const res = await apiFetch(`/api/alerts/${params}`);
       const data = await res.json();
       setAlerts(Array.isArray(data) ? data : []);
@@ -122,14 +129,14 @@ export default function AlertsPage() {
     setLoading(true);
     fetchData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, severityFilter]);
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => fetchData(true), POLL_INTERVAL_MS);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, severityFilter]);
 
   const updateStatus = async (id: number, newStatus: string) => {
     setUpdating(id);
