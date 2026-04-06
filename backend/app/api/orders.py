@@ -232,6 +232,7 @@ def create_order(
         requested_date=payload.requested_date,
         expected_delivery_date=expected_delivery_date,
         note=payload.note,
+        linked_alert_id=payload.linked_alert_id,
         created_by=current_user.id,
     )
     db.add(order)

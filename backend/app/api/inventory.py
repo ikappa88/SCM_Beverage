@@ -618,3 +618,52 @@ def get_inventory_timeline(
         "safety_stock": safety_stock,
         "events": events,
     }
+
+
+# ---------------------------------------------------------------------------
+# 在庫埋め込みCSVダウンロード（P3-003）
+# ---------------------------------------------------------------------------
+
+@router.get("/export/csv")
+def export_inventory_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    現在の在庫データを CSV で返す。
+    列: location_code, product_code, manufacture_date, expiry_date, quantity
+    CSVアップロード用テンプレートとして使えるよう現在庫値を埋め込み済み。
+    """
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    allowed_ids = get_allowed_location_ids(current_user)
+    query = db.query(Inventory).options(
+        joinedload(Inventory.location),
+        joinedload(Inventory.product),
+    )
+    if allowed_ids is not None:
+        query = query.filter(Inventory.location_id.in_(allowed_ids))
+
+    rows = query.order_by(Inventory.location_id, Inventory.product_id).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["location_code", "product_code", "manufacture_date", "expiry_date", "quantity"])
+    for inv in rows:
+        writer.writerow([
+            inv.location.code if inv.location else "",
+            inv.product.code if inv.product else "",
+            inv.manufacture_date.isoformat() if inv.manufacture_date else "",
+            inv.expiry_date.isoformat() if inv.expiry_date else "",
+            inv.quantity,
+        ])
+
+    output.seek(0)
+    today = datetime.now(timezone.utc).date().isoformat()
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="inventory_{today}.csv"'},
+    )

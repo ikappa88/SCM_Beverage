@@ -18,6 +18,7 @@ class OrderCreate(BaseModel):
     requested_date: date
     expected_delivery_date: Optional[date] = None
     note: Optional[str] = None
+    linked_alert_id: Optional[int] = None
 
     @field_validator("quantity")
     @classmethod
@@ -62,6 +63,7 @@ class OrderResponse(BaseModel):
     expected_delivery_date: Optional[date]
     actual_delivery_date: Optional[date]
     note: Optional[str]
+    linked_alert_id: Optional[int]
     created_by: int
     updated_by: Optional[int]
     from_location: LocationResponse
